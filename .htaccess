@@ -1,0 +1,100 @@
+# Apache配置文件 - 奖学金评定系统
+RewriteEngine On
+
+# 设置默认页面
+DirectoryIndex index.html index.php
+
+# 跨域请求支持
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS, PUT, DELETE"
+    Header always set Access-Control-Allow-Headers "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+    Header always set Access-Control-Max-Age "1728000"
+</IfModule>
+
+# 处理OPTIONS预检请求
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ - [R=200,L]
+
+# 静态资源缓存
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/jpg "access plus 1 month"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+    ExpiresByType image/x-icon "access plus 1 year"
+</IfModule>
+
+# Gzip压缩
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/plain
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/xml
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE application/xml
+    AddOutputFilterByType DEFLATE application/xhtml+xml
+    AddOutputFilterByType DEFLATE application/rss+xml
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/x-javascript
+    AddOutputFilterByType DEFLATE application/json
+</IfModule>
+
+# 安全设置 - 防止访问敏感文件
+<Files ~ "^\.">
+    Require all denied
+</Files>
+
+<Files ~ "\.(sql|log|conf|config|bak)$">
+    Require all denied
+</Files>
+
+# PHP文件安全设置
+<Files "*.php">
+    Require all granted
+</Files>
+
+# URL重写规则
+# 安装页面路由
+RewriteRule ^install/?$ install.html [L]
+
+# API路由保持不变
+RewriteCond %{REQUEST_URI} ^/api/
+RewriteRule ^api/(.*)$ api/$1 [L]
+
+# 上传文件路由
+RewriteCond %{REQUEST_URI} ^/uploads/
+RewriteRule ^uploads/(.*)$ uploads/$1 [L]
+
+# 静态资源路由
+RewriteCond %{REQUEST_URI} ^/assets/
+RewriteRule ^assets/(.*)$ assets/$1 [L]
+
+# 主页面路由
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_URI} !^/api/
+RewriteCond %{REQUEST_URI} !^/uploads/
+RewriteCond %{REQUEST_URI} !^/assets/
+RewriteRule ^(.*)$ index.html [L]
+
+# 错误页面
+ErrorDocument 404 /index.html
+
+# 上传文件大小限制
+<IfModule mod_php7.c>
+    php_value upload_max_filesize 50M
+    php_value post_max_size 50M
+    php_value max_execution_time 300
+    php_value max_input_time 300
+</IfModule>
+
+<IfModule mod_php8.c>
+    php_value upload_max_filesize 50M
+    php_value post_max_size 50M
+    php_value max_execution_time 300
+    php_value max_input_time 300
+</IfModule> 

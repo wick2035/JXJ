@@ -1,0 +1,22 @@
+# 允许访问上传的文件
+Options +Indexes
+DirectoryIndex index.html
+
+# 设置文件类型
+<Files ~ "\.(jpg|jpeg|png|gif|pdf|doc|docx)$">
+    Header set Content-Disposition "inline"
+</Files>
+
+# 防止执行PHP文件（安全考虑）
+<Files ~ "\.php$">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+# 设置正确的MIME类型
+AddType image/jpeg .jpg .jpeg
+AddType image/png .png
+AddType image/gif .gif
+AddType application/pdf .pdf
+AddType application/msword .doc
+AddType application/vnd.openxmlformats-officedocument.wordprocessingml.document .docx 

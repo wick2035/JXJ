@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>奖学金评定系统 - 安装向导</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .install-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            color: white;
+            font-weight: bold;
+        }
+
+        .install-title {
+            color: #1e3a8a;
+            font-size: 28px;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .install-subtitle {
+            color: #6b7280;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            color: #374151;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .install-btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        .install-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+        }
+
+        .install-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .test-btn {
+            background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+            margin-top: 10px;
+            padding: 10px;
+            font-size: 14px;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+        }
+
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        .alert-info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #bfdbfe;
+        }
+
+        .progress-steps {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 30px;
+            position: relative;
+        }
+
+        .progress-steps::before {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            height: 2px;
+            background: #e5e7eb;
+            z-index: 1;
+        }
+
+        .progress-steps::after {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 0%;
+            height: 2px;
+            background: #3b82f6;
+            transition: width 0.3s ease;
+            z-index: 2;
+        }
+
+        .progress-steps.step-2::after { width: 50%; }
+        .progress-steps.step-3::after { width: 100%; }
+
+        .step {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #6b7280;
+            position: relative;
+            z-index: 3;
+        }
+
+        .step.active {
+            border-color: #3b82f6;
+            color: #3b82f6;
+        }
+
+        .step.completed {
+            background: #3b82f6;
+            border-color: #3b82f6;
+            color: white;
+        }
+
+        .install-step {
+            display: none;
+        }
+
+        .install-step.active {
+            display: block;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="install-container">
+        <div class="logo">
+            <div class="logo-icon">奖</div>
+            <h1 class="install-title">奖学金评定系统</h1>
+            <p class="install-subtitle">安装向导 - 请按照步骤完成系统部署</p>
+        </div>
+
+        <div class="progress-steps" id="progressSteps">
+            <div class="step active" id="step1">1</div>
+            <div class="step" id="step2">2</div>
+            <div class="step" id="step3">3</div>
+        </div>
+
+        <!-- 第一步：环境检测 -->
+        <div class="install-step active" id="envCheck">
+            <h3 style="color: #1e3a8a; margin-bottom: 20px;">环境检测</h3>
+            <div id="envResults">
+                <div class="alert alert-info">正在检测服务器环境...</div>
+            </div>
+            <button type="button" class="install-btn" onclick="checkEnvironment()" id="checkEnvBtn">开始检测</button>
+        </div>
+
+        <!-- 第二步：数据库配置 -->
+        <div class="install-step" id="dbConfig">
+            <h3 style="color: #1e3a8a; margin-bottom: 20px;">数据库配置</h3>
+            <div id="configAlert"></div>
+            
+            <form id="configForm">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">数据库主机</label>
+                        <input type="text" id="dbHost" class="form-input" value="localhost" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">端口</label>
+                        <input type="number" id="dbPort" class="form-input" value="3306" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">数据库名称</label>
+                    <input type="text" id="dbName" class="form-input" value="scholarship_system" required>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">用户名</label>
+                        <input type="text" id="dbUser" class="form-input" value="root" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">密码</label>
+                        <input type="password" id="dbPass" class="form-input">
+                    </div>
+                </div>
+
+                <button type="button" class="install-btn test-btn" onclick="testConnection()">测试连接</button>
+                <button type="button" class="install-btn" onclick="saveConfig()" id="saveConfigBtn">保存配置并继续</button>
+            </form>
+        </div>
+
+        <!-- 第三步：完成安装 -->
+        <div class="install-step" id="installComplete">
+            <h3 style="color: #1e3a8a; margin-bottom: 20px;">安装完成</h3>
+            <div id="installResults">
+                <div class="alert alert-info">正在安装系统...</div>
+            </div>
+            <button type="button" class="install-btn" onclick="completeInstall()" id="completeBtn">完成安装</button>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 1;
+
+        function checkEnvironment() {
+            const btn = document.getElementById('checkEnvBtn');
+            const results = document.getElementById('envResults');
+            
+            btn.textContent = '检测中...';
+            btn.disabled = true;
+
+            fetch('install.php?action=check_env')
+                .then(response => response.json())
+                .then(data => {
+                    let html = '';
+                    let canContinue = true;
+
+                    data.checks.forEach(check => {
+                        const status = check.status ? 'success' : 'error';
+                        const icon = check.status ? '✓' : '✗';
+                        html += `<div class="alert alert-${status}">${icon} ${check.name}: ${check.message}</div>`;
+                        if (!check.status) canContinue = false;
+                    });
+
+                    results.innerHTML = html;
+
+                    if (canContinue) {
+                        setTimeout(() => {
+                            nextStep();
+                        }, 2000);
+                    } else {
+                        btn.textContent = '重新检测';
+                        btn.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    results.innerHTML = '<div class="alert alert-error">检测失败: ' + error.message + '</div>';
+                    btn.textContent = '重新检测';
+                    btn.disabled = false;
+                });
+        }
+
+        function testConnection() {
+            const alert = document.getElementById('configAlert');
+            const formData = new FormData();
+            
+            formData.append('action', 'test_db');
+            formData.append('host', document.getElementById('dbHost').value);
+            formData.append('port', document.getElementById('dbPort').value);
+            formData.append('name', document.getElementById('dbName').value);
+            formData.append('user', document.getElementById('dbUser').value);
+            formData.append('pass', document.getElementById('dbPass').value);
+
+            alert.innerHTML = '<div class="alert alert-info">正在测试数据库连接...</div>';
+
+            fetch('install.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert.innerHTML = '<div class="alert alert-success">数据库连接成功！</div>';
+                } else {
+                    alert.innerHTML = '<div class="alert alert-error">连接失败: ' + data.message + '</div>';
+                }
+            })
+            .catch(error => {
+                alert.innerHTML = '<div class="alert alert-error">测试失败: ' + error.message + '</div>';
+            });
+        }
+
+        function saveConfig() {
+            const btn = document.getElementById('saveConfigBtn');
+            const alert = document.getElementById('configAlert');
+            const formData = new FormData();
+            
+            formData.append('action', 'save_config');
+            formData.append('host', document.getElementById('dbHost').value);
+            formData.append('port', document.getElementById('dbPort').value);
+            formData.append('name', document.getElementById('dbName').value);
+            formData.append('user', document.getElementById('dbUser').value);
+            formData.append('pass', document.getElementById('dbPass').value);
+
+            btn.textContent = '保存中...';
+            btn.disabled = true;
+
+            fetch('install.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert.innerHTML = '<div class="alert alert-success">配置保存成功！</div>';
+                    setTimeout(() => {
+                        nextStep();
+                    }, 1000);
+                } else {
+                    alert.innerHTML = '<div class="alert alert-error">保存失败: ' + data.message + '</div>';
+                    btn.textContent = '保存配置并继续';
+                    btn.disabled = false;
+                }
+            })
+            .catch(error => {
+                alert.innerHTML = '<div class="alert alert-error">保存失败: ' + error.message + '</div>';
+                btn.textContent = '保存配置并继续';
+                btn.disabled = false;
+            });
+        }
+
+        function completeInstall() {
+            const btn = document.getElementById('completeBtn');
+            const results = document.getElementById('installResults');
+            
+            btn.textContent = '安装中...';
+            btn.disabled = true;
+
+            fetch('install.php?action=install')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        results.innerHTML = `
+                            <div class="alert alert-success">安装完成！</div>
+                            <div class="alert alert-info">
+                                <strong>默认账号信息：</strong><br>
+                                学生账号：123 / 123<br>
+                                管理员账号：1234 / 1234<br>
+                                <br>
+                                <strong>重要提示：</strong><br>
+                                1. 请及时修改默认密码<br>
+                                2. 请设置 uploads 目录的写入权限<br>
+                                3. 建议启用 HTTPS 访问
+                            </div>
+                        `;
+                        btn.textContent = '进入系统';
+                        btn.onclick = () => window.location.href = 'index.html';
+                        btn.disabled = false;
+                    } else {
+                        results.innerHTML = '<div class="alert alert-error">安装失败: ' + data.message + '</div>';
+                        btn.textContent = '重新安装';
+                        btn.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    results.innerHTML = '<div class="alert alert-error">安装失败: ' + error.message + '</div>';
+                    btn.textContent = '重新安装';
+                    btn.disabled = false;
+                });
+        }
+
+        function nextStep() {
+            document.querySelector('.install-step.active').classList.remove('active');
+            document.getElementById(`step${currentStep}`).classList.add('completed');
+            
+            currentStep++;
+            
+            document.getElementById(`step${currentStep}`).classList.add('active');
+            document.getElementById('progressSteps').className = `progress-steps step-${currentStep}`;
+            
+            if (currentStep === 2) {
+                document.getElementById('dbConfig').classList.add('active');
+            } else if (currentStep === 3) {
+                document.getElementById('installComplete').classList.add('active');
+            }
+        }
+
+        // 页面加载时检查是否已安装
+        document.addEventListener('DOMContentLoaded', function() {
+            fetch('install.php?action=check_install')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.installed) {
+                        alert('系统已安装，将跳转到主页面');
+                        window.location.href = 'index.html';
+                    }
+                })
+                .catch(error => {
+                    console.log('检查安装状态失败，继续安装流程');
+                });
+        });
+    </script>
+</body>
+</html> 
