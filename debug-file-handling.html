@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件处理调试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .debug-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .debug-title {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        .test-case {
+            background: #f8f9fa;
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 4px solid #007bff;
+        }
+        .result {
+            background: #e7f3ff;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .error {
+            background: #ffe7e7;
+            color: #d63384;
+        }
+        .success {
+            background: #e7ffe7;
+            color: #198754;
+        }
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button.warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        button.success {
+            background: #28a745;
+        }
+        button.danger {
+            background: #dc3545;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        .file-mock {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            background: #fff;
+        }
+        .step {
+            margin: 15px 0;
+            padding: 10px;
+            border-left: 3px solid #28a745;
+            background: #f8fff9;
+        }
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .comparison-item {
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .before {
+            background: #ffe7e7;
+            border: 2px solid #dc3545;
+        }
+        .after {
+            background: #e7ffe7;
+            border: 2px solid #28a745;
+        }
+    </style>
+</head>
+<body>
+    <h1>文件处理调试页面</h1>
+    
+    <div class="debug-section">
+        <h2 class="debug-title">问题分析</h2>
+        <div class="test-case">
+            <h3>当前问题：</h3>
+            <ul>
+                <li><strong>编辑模式下文件丢失：</strong> 用户编辑申请时，如果没有重新上传文件，原有文件会丢失</li>
+                <li><strong>文件标识问题：</strong> 已有文件的ID和isExisting标记可能没有正确传递到后端</li>
+                <li><strong>数据结构不匹配：</strong> 前端和后端的文件数据结构可能不一致</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="debug-section">
+        <h2 class="debug-title">测试流程</h2>
+        
+        <div class="test-case">
+            <h3>步骤1: 模拟加载已有文件</h3>
+            <button onclick="simulateLoadExistingFiles()">模拟加载文件</button>
+            <div id="loadFilesResult" class="result"></div>
+        </div>
+
+        <div class="test-case">
+            <h3>步骤2: 检查tempFiles结构</h3>
+            <button onclick="checkTempFilesStructure()">检查文件结构</button>
+            <div id="tempFilesResult" class="result"></div>
+        </div>
+
+        <div class="test-case">
+            <h3>步骤3: 模拟提交数据处理</h3>
+            <button onclick="simulateSubmitDataProcessing()">模拟提交处理</button>
+            <div id="submitProcessingResult" class="result"></div>
+        </div>
+
+        <div class="test-case">
+            <h3>步骤4: 对比修复前后</h3>
+            <button onclick="compareBeforeAfter()">对比修复</button>
+            <div id="comparisonResult" class="result"></div>
+        </div>
+
+        <div class="test-case">
+            <h3>步骤5: 完整流程测试</h3>
+            <button onclick="fullFlowTest()">完整测试</button>
+            <div id="fullFlowResult" class="result"></div>
+        </div>
+    </div>
+
+    <div class="debug-section">
+        <h2 class="debug-title">实时调试工具</h2>
+        
+        <div class="test-case">
+            <h3>当前tempFiles状态</h3>
+            <button onclick="showCurrentTempFiles()">显示当前状态</button>
+            <button onclick="clearTempFiles()" class="danger">清空tempFiles</button>
+            <div id="currentStateResult" class="result"></div>
+        </div>
+
+        <div class="test-case">
+            <h3>文件处理函数测试</h3>
+            <button onclick="testFileProcessingFunction()">测试处理函数</button>
+            <div id="functionTestResult" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        // 模拟全局变量
+        if (!window.tempFiles) {
+            window.tempFiles = {};
+        }
+
+        // 模拟从后端加载的文件数据
+        const mockFilesFromBackend = [
+            {
+                id: 123,
+                original_name: "competition_certificate.pdf",
+                file_name: "uploads/20241201_123456_certificate.pdf",
+                file_path: "uploads/20241201_123456_certificate.pdf",
+                file_size: 2048576,
+                file_type: "application/pdf",
+                upload_time: "2024-12-01 10:30:00"
+            },
+            {
+                id: 124,
+                original_name: "award_photo.jpg",
+                file_name: "uploads/20241201_123457_photo.jpg",
+                file_path: "uploads/20241201_123457_photo.jpg",
+                file_size: 1024000,
+                file_type: "image/jpeg",
+                upload_time: "2024-12-01 10:35:00"
+            }
+        ];
+
+        // 模拟loadExistingFiles函数
+        function mockLoadExistingFiles(categoryId, itemIndex, files) {
+            if (!window.tempFiles) window.tempFiles = {};
+            const key = `${categoryId}_${itemIndex}`;
+            
+            console.log('模拟加载文件:', { categoryId, itemIndex, files });
+            
+            window.tempFiles[key] = files.map(file => ({
+                name: file.original_name || file.file_name || file.name,
+                size: file.file_size || file.size,
+                type: file.file_type || file.type,
+                uploadTime: file.upload_time ? new Date(file.upload_time).toLocaleString() : '',
+                url: file.file_path ? (file.file_path.startsWith('uploads/') ? file.file_path : 'uploads/' + file.file_path) : '',
+                path: file.file_path || file.path,
+                id: file.id,
+                isExisting: true
+            }));
+            
+            return window.tempFiles[key];
+        }
+
+        // 模拟提交时的文件处理函数
+        function mockFileProcessing(files) {
+            console.log('处理文件列表:', files);
+            
+            return files.map(file => {
+                console.log('处理单个文件:', file);
+                
+                // 修复前的逻辑（错误）
+                const oldLogic = file.id ? 'existing' : 'new';
+                
+                // 修复后的逻辑（正确）
+                const newLogic = (file.id || file.isExisting) ? 'existing' : 'new';
+                
+                const processedFile = {
+                    originalFile: file,
+                    oldLogicResult: oldLogic,
+                    newLogicResult: newLogic,
+                    isCorrect: newLogic === 'existing'
+                };
+                
+                if (file.id || file.isExisting) {
+                    // 已存在的文件
+                    processedFile.processedData = {
+                        id: file.id,
+                        path: file.path || file.url,
+                        name: file.name,
+                        size: file.size,
+                        type: file.type,
+                        original_name: file.name,
+                        file_name: file.path || file.url,
+                        file_path: file.path || file.url,
+                        file_size: file.size,
+                        file_type: file.type,
+                        is_existing: true
+                    };
+                } else {
+                    // 新上传的文件
+                    processedFile.processedData = {
+                        path: file.path,
+                        name: file.name,
+                        size: file.size,
+                        type: file.type,
+                        original_name: file.name,
+                        file_name: file.path,
+                        file_path: file.path,
+                        file_size: file.size,
+                        file_type: file.type,
+                        is_existing: false
+                    };
+                }
+                
+                return processedFile;
+            });
+        }
+
+        function simulateLoadExistingFiles() {
+            const categoryId = 2;
+            const itemIndex = 'edit_40_0';
+            
+            console.log('开始模拟加载已有文件...');
+            const loadedFiles = mockLoadExistingFiles(categoryId, itemIndex, mockFilesFromBackend);
+            
+            const result = `
+                <div class="step">
+                    <h4>步骤1: 模拟从后端加载文件</h4>
+                    <strong>输入数据（后端返回）:</strong>
+                    <pre>${JSON.stringify(mockFilesFromBackend, null, 2)}</pre>
+                </div>
+                
+                <div class="step">
+                    <h4>步骤2: 处理后存储到tempFiles</h4>
+                    <strong>存储键:</strong> ${categoryId}_${itemIndex}<br>
+                    <strong>处理后的数据:</strong>
+                    <pre>${JSON.stringify(loadedFiles, null, 2)}</pre>
+                </div>
+                
+                <div class="step">
+                    <h4>步骤3: 验证关键字段</h4>
+                    ${loadedFiles.map((file, index) => `
+                        <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                            <strong>文件 ${index + 1}: ${file.name}</strong><br>
+                            ✓ id: ${file.id} (${file.id ? '有ID' : '无ID'})<br>
+                            ✓ isExisting: ${file.isExisting} (${file.isExisting ? '标记为已存在' : '标记为新文件'})<br>
+                            ✓ path: ${file.path}<br>
+                            ✓ size: ${file.size} bytes
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            document.getElementById('loadFilesResult').innerHTML = result;
+        }
+
+        function checkTempFilesStructure() {
+            const result = `
+                <div class="step">
+                    <h4>当前tempFiles完整结构:</h4>
+                    <pre>${JSON.stringify(window.tempFiles, null, 2)}</pre>
+                </div>
+                
+                <div class="step">
+                    <h4>结构验证:</h4>
+                    ${Object.keys(window.tempFiles).map(key => {
+                        const files = window.tempFiles[key];
+                        return `
+                            <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                                <strong>键: ${key}</strong><br>
+                                文件数量: ${files.length}<br>
+                                ${files.map((file, index) => `
+                                    文件${index + 1}: ${file.name} (ID: ${file.id}, 已存在: ${file.isExisting})
+                                `).join('<br>')}
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+            
+            document.getElementById('tempFilesResult').innerHTML = result;
+        }
+
+        function simulateSubmitDataProcessing() {
+            const categoryId = 2;
+            const itemIndex = 'edit_40_0';
+            const key = `${categoryId}_${itemIndex}`;
+            const files = window.tempFiles[key] || [];
+            
+            console.log('开始模拟提交数据处理...');
+            const processedFiles = mockFileProcessing(files);
+            
+            const result = `
+                <div class="step">
+                    <h4>提交时文件处理结果:</h4>
+                    ${processedFiles.map((processed, index) => `
+                        <div style="margin: 15px 0; padding: 15px; background: ${processed.isCorrect ? '#e7ffe7' : '#ffe7e7'}; border-radius: 4px;">
+                            <h5>文件 ${index + 1}: ${processed.originalFile.name}</h5>
+                            
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 10px 0;">
+                                <div>
+                                    <strong>修复前逻辑:</strong><br>
+                                    检查条件: file.id<br>
+                                    file.id = ${processed.originalFile.id}<br>
+                                    结果: ${processed.oldLogicResult}
+                                    ${processed.oldLogicResult === 'new' ? ' ❌ 错误！' : ' ✓'}
+                                </div>
+                                <div>
+                                    <strong>修复后逻辑:</strong><br>
+                                    检查条件: file.id || file.isExisting<br>
+                                    file.id = ${processed.originalFile.id}<br>
+                                    file.isExisting = ${processed.originalFile.isExisting}<br>
+                                    结果: ${processed.newLogicResult}
+                                    ${processed.newLogicResult === 'existing' ? ' ✓ 正确！' : ' ❌'}
+                                </div>
+                            </div>
+                            
+                            <details>
+                                <summary>处理后的数据结构</summary>
+                                <pre>${JSON.stringify(processed.processedData, null, 2)}</pre>
+                            </details>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            document.getElementById('submitProcessingResult').innerHTML = result;
+        }
+
+        function compareBeforeAfter() {
+            const result = `
+                <div class="comparison">
+                    <div class="comparison-item before">
+                        <h4>修复前（有问题）</h4>
+                        <pre><code>// 只检查 file.id
+if (file.id) {
+    // 处理已存在文件
+    return {
+        id: file.id,
+        is_existing: true,
+        // ... 其他字段
+    };
+} else {
+    // 处理新文件
+    return {
+        is_existing: false,
+        // ... 其他字段
+    };
+}</code></pre>
+                        <p><strong>问题:</strong> 从后端加载的文件有ID，但用户没有修改文件时，file.id 可能为 undefined，导致文件被当作新文件处理。</p>
+                    </div>
+                    
+                    <div class="comparison-item after">
+                        <h4>修复后（正确）</h4>
+                        <pre><code>// 检查 file.id 或 file.isExisting
+if (file.id || file.isExisting) {
+    // 处理已存在文件
+    return {
+        id: file.id,
+        is_existing: true,
+        // ... 其他字段
+    };
+} else {
+    // 处理新文件
+    return {
+        is_existing: false,
+        // ... 其他字段
+    };
+}</code></pre>
+                        <p><strong>解决:</strong> 即使 file.id 为空，只要 file.isExisting 为 true，文件就会被正确识别为已存在文件。</p>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <h4>关键改进点:</h4>
+                    <ul>
+                        <li>✓ 双重检查机制：file.id || file.isExisting</li>
+                        <li>✓ 兼容性更好：即使ID丢失，isExisting标记仍能保证文件正确处理</li>
+                        <li>✓ 向后兼容：原有的ID检查逻辑仍然有效</li>
+                    </ul>
+                </div>
+            `;
+            
+            document.getElementById('comparisonResult').innerHTML = result;
+        }
+
+        function fullFlowTest() {
+            console.log('开始完整流程测试...');
+            
+            // 步骤1: 清空并重新初始化
+            window.tempFiles = {};
+            
+            // 步骤2: 模拟加载已有文件
+            const categoryId = 2;
+            const itemIndex = 'edit_40_0';
+            const loadedFiles = mockLoadExistingFiles(categoryId, itemIndex, mockFilesFromBackend);
+            
+            // 步骤3: 模拟用户修改（只改级别，不动文件）
+            // 用户修改了award_level从'national'到'provincial'，但没有修改文件
+            
+            // 步骤4: 模拟提交处理
+            const files = window.tempFiles[`${categoryId}_${itemIndex}`] || [];
+            const processedFiles = mockFileProcessing(files);
+            
+            // 步骤5: 生成最终提交数据
+            const applicationData = {
+                category_id: categoryId,
+                item_id: 6,
+                award_level: 'provincial', // 用户修改的
+                award_grade: 'first',
+                score: 25,
+                files: processedFiles.map(p => p.processedData)
+            };
+            
+            const isSuccess = processedFiles.every(p => p.isCorrect);
+            
+            const result = `
+                <div class="step">
+                    <h4>完整流程测试结果</h4>
+                    <div style="padding: 15px; background: ${isSuccess ? '#e7ffe7' : '#ffe7e7'}; border-radius: 8px; margin: 15px 0;">
+                        <h5>${isSuccess ? '✓ 测试通过！' : '❌ 测试失败！'}</h5>
+                        <p>${isSuccess ? 
+                            '所有文件都被正确识别为已存在文件，修改级别后文件不会丢失。' : 
+                            '部分文件被错误识别，可能导致文件丢失。'
+                        }</p>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <h4>最终提交数据:</h4>
+                    <pre>${JSON.stringify(applicationData, null, 2)}</pre>
+                </div>
+                
+                <div class="step">
+                    <h4>文件处理详情:</h4>
+                    ${processedFiles.map((processed, index) => `
+                        <div style="margin: 10px 0; padding: 10px; background: ${processed.isCorrect ? '#e7ffe7' : '#ffe7e7'}; border-radius: 4px;">
+                            <strong>文件 ${index + 1}: ${processed.originalFile.name}</strong><br>
+                            处理结果: ${processed.newLogicResult} ${processed.isCorrect ? '✓' : '❌'}<br>
+                            is_existing: ${processed.processedData.is_existing}<br>
+                            file_id: ${processed.processedData.id || 'null'}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            document.getElementById('fullFlowResult').innerHTML = result;
+        }
+
+        function showCurrentTempFiles() {
+            const result = `
+                <div class="step">
+                    <h4>当前tempFiles状态:</h4>
+                    <pre>${JSON.stringify(window.tempFiles, null, 2)}</pre>
+                    
+                    <h4>状态统计:</h4>
+                    <p>总键数: ${Object.keys(window.tempFiles).length}</p>
+                    <p>总文件数: ${Object.values(window.tempFiles).reduce((sum, files) => sum + files.length, 0)}</p>
+                </div>
+            `;
+            
+            document.getElementById('currentStateResult').innerHTML = result;
+        }
+
+        function clearTempFiles() {
+            window.tempFiles = {};
+            showCurrentTempFiles();
+        }
+
+        function testFileProcessingFunction() {
+            // 测试各种文件场景
+            const testCases = [
+                {
+                    name: "已有文件（有ID）",
+                    file: { id: 123, name: "test1.pdf", isExisting: true, path: "uploads/test1.pdf" }
+                },
+                {
+                    name: "已有文件（无ID但有isExisting）",
+                    file: { id: null, name: "test2.pdf", isExisting: true, path: "uploads/test2.pdf" }
+                },
+                {
+                    name: "新上传文件",
+                    file: { id: null, name: "test3.pdf", isExisting: false, path: "uploads/test3.pdf" }
+                },
+                {
+                    name: "新上传文件（无isExisting标记）",
+                    file: { name: "test4.pdf", path: "uploads/test4.pdf" }
+                }
+            ];
+            
+            const results = testCases.map(testCase => {
+                const processed = mockFileProcessing([testCase.file])[0];
+                return {
+                    ...testCase,
+                    processed
+                };
+            });
+            
+            const result = `
+                <div class="step">
+                    <h4>文件处理函数测试结果:</h4>
+                    ${results.map((result, index) => `
+                        <div style="margin: 15px 0; padding: 15px; background: ${result.processed.isCorrect ? '#e7ffe7' : '#ffe7e7'}; border-radius: 4px;">
+                            <h5>测试案例 ${index + 1}: ${result.name}</h5>
+                            <strong>输入:</strong>
+                            <pre>${JSON.stringify(result.file, null, 2)}</pre>
+                            <strong>处理结果:</strong> ${result.processed.newLogicResult} ${result.processed.isCorrect ? '✓' : '❌'}<br>
+                            <strong>最终数据:</strong>
+                            <pre>${JSON.stringify(result.processed.processedData, null, 2)}</pre>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            document.getElementById('functionTestResult').innerHTML = result;
+        }
+
+        // 页面加载时自动运行一些测试
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('文件处理调试页面已加载');
+            simulateLoadExistingFiles();
+        });
+    </script>
+</body>
+</html> 

@@ -205,16 +205,84 @@ body::before {
     margin-left: 15px;
     padding: 8px 16px;
     border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 8px;
-    background: transparent;
-    color: white;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: rgba(255, 255, 255, 0.9);
     cursor: pointer;
     font-size: 12px;
     transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(31, 38, 135, 0.1);
 }
 
 .logout-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.15);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(31, 38, 135, 0.2);
+}
+
+.btn-secondary {
+    margin-left: 15px;
+    padding: 8px 16px;
+    border: 1px solid rgba(59, 130, 246, 0.4);
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(30, 58, 138, 0.2));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: white;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.25);
+}
+
+.btn-secondary:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(30, 58, 138, 0.3));
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+    border-color: rgba(59, 130, 246, 0.6);
+}
+
+.btn-cancel {
+    background: rgba(108, 117, 125, 0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(108, 117, 125, 0.3);
+    color: rgba(255, 255, 255, 0.8);
+    padding: 10px 20px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(31, 38, 135, 0.1);
+}
+
+.btn-cancel:hover {
+    background: rgba(108, 117, 125, 0.25);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(31, 38, 135, 0.2);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
 }
 
 .dashboard {
@@ -411,6 +479,16 @@ body::before {
     background: rgba(239, 68, 68, 0.2);
     color: #ef4444;
     border: 1px solid rgba(239, 68, 68, 0.3);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-submitted {
+    background: rgba(124, 58, 237, 0.2);
+    color: #a855f7;
+    border: 1px solid rgba(124, 58, 237, 0.3);
     padding: 4px 12px;
     border-radius: 20px;
     font-size: 12px;

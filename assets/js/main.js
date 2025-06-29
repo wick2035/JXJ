@@ -8,6 +8,22 @@ let categories = [];
 let batches = [];
 let announcements = [];
 
+// 强制重置提交按钮状态的函数
+function forceResetSubmitButton() {
+    const submitBtn = document.getElementById('submitBtn');
+    if (submitBtn) {
+        submitBtn.disabled = false;
+        
+        // 判断是否为编辑模式
+        const isEditMode = currentApplication && currentApplication.id;
+        submitBtn.textContent = isEditMode ? '更新申请' : '提交申请';
+        
+        submitBtn.style.opacity = '1';
+        submitBtn.style.pointerEvents = 'auto';
+        console.log('强制重置提交按钮状态:', submitBtn.textContent, '编辑模式:', isEditMode);
+    }
+}
+
 // 奖项等级和级别定义
 const awardLevels = ['national', 'provincial', 'municipal', 'university', 'college', 'ungraded'];
 const awardGrades = ['first', 'second', 'third', 'none'];
@@ -234,14 +250,18 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
             hideAllPages();
             if (user.type === 'student') {
                 showStudentPage();
-                // 学生登录后显示公告
-                if (shouldShowAnnouncementOnLogin()) {
-                    setTimeout(() => {
-                        const activeAnnouncement = announcements.find(ann => ann.is_active);
-                        if (activeAnnouncement) {
-                            showAnnouncementModal();
-                        }
-                    }, 1000);
+                
+                // 检查是否需要强制修改密码
+                if (!checkForcePasswordChange(user)) {
+                    // 如果不需要强制修改密码，则正常显示公告
+                    if (shouldShowAnnouncementOnLogin()) {
+                        setTimeout(() => {
+                            const activeAnnouncement = announcements.find(ann => ann.is_active);
+                            if (activeAnnouncement) {
+                                showAnnouncementModal();
+                            }
+                        }, 1000);
+                    }
                 }
             } else {
                 showAdminPage();
@@ -337,6 +357,16 @@ function showApplicationPage(batchId, applicationId = null) {
     hideAllPages();
     document.getElementById('applicationPage').classList.add('active');
     
+    // 初始化临时文件状态
+    if (!window.tempFiles) {
+        window.tempFiles = {};
+    }
+    
+    // 只在非编辑模式下清除临时文件状态
+    if (!applicationId) {
+        window.tempFiles = {};
+    }
+    
     // 更新批次标题和ID
     const batch = batches.find(b => b.id == batchId);
     const titleElement = document.getElementById('currentBatchTitle');
@@ -347,6 +377,9 @@ function showApplicationPage(batchId, applicationId = null) {
     
     // 设置当前申请ID（编辑模式）
     currentApplication = applicationId ? { id: applicationId } : null;
+    
+    // 立即强制重置提交按钮状态
+    forceResetSubmitButton();
     
     // 加载类目并渲染
     const loadAndRender = async () => {
@@ -364,6 +397,9 @@ function showApplicationPage(batchId, applicationId = null) {
                 await loadApplicationForEdit(applicationId);
             }
             
+            // 最终确保提交按钮状态正确
+            forceResetSubmitButton();
+            
         } catch (error) {
             console.error('Error loading application page:', error);
             alert('加载页面失败' + error.message);
@@ -371,6 +407,11 @@ function showApplicationPage(batchId, applicationId = null) {
     };
     
     loadAndRender();
+    
+    // 设置一个短暂的延迟，确保DOM完全加载后再次重置按钮
+    setTimeout(() => {
+        forceResetSubmitButton();
+    }, 500);
 }
 
 async function logout() {
@@ -400,6 +441,8 @@ document.addEventListener('DOMContentLoaded', async function() {
             hideAllPages();
             if (user.type === 'student') {
                 showStudentPage();
+                // 检查是否需要强制修改密码
+                checkForcePasswordChange(user);
             } else {
                 showAdminPage();
             }
@@ -465,6 +508,24 @@ document.addEventListener('DOMContentLoaded', async function() {
             closeEditUserModal();
         }
     });
+    
+    // 监听页面可见性变化，确保按钮状态正确
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden && document.getElementById('applicationPage').classList.contains('active')) {
+            setTimeout(() => {
+                forceResetSubmitButton();
+            }, 100);
+        }
+    });
+    
+    // 监听窗口焦点事件
+    window.addEventListener('focus', function() {
+        if (document.getElementById('applicationPage').classList.contains('active')) {
+            setTimeout(() => {
+                forceResetSubmitButton();
+            }, 100);
+        }
+    });
 });
 
 // 批次和申请管理
@@ -475,16 +536,48 @@ async function renderBatchList() {
     try {
         await DataManager.loadBatches();
         
+        // 批量检查申请状态
+        const batchApplicationStatus = {};
+        await Promise.all(batches.map(async (batch) => {
+            try {
+                const response = await ApiClient.get(`api/applications.php?action=check_application_status&batch_id=${batch.id}`);
+                if (response.success) {
+                    batchApplicationStatus[batch.id] = response;
+                }
+            } catch (error) {
+                console.error('Error checking application status for batch:', batch.id, error);
+                batchApplicationStatus[batch.id] = { has_applied: false };
+            }
+        }));
+        
         batches.forEach(batch => {
             const batchEl = document.createElement('div');
             batchEl.className = 'batch-item';
             
-            batchEl.onclick = () => {
-                showApplicationPage(batch.id);
-            };
+            const applicationStatus = batchApplicationStatus[batch.id] || { has_applied: false };
+            const hasApplied = applicationStatus.has_applied;
             
-            const statusText = batch.status === 'open' ? '申报中' : '已截止';
-            const statusClass = batch.status === 'open' ? 'status-open' : 'status-closed';
+            if (hasApplied) {
+                batchEl.onclick = () => {
+                    alert('您已在此批次提交过申请，每个批次只能提交一次申请。');
+                };
+            } else {
+                batchEl.onclick = () => {
+                    showApplicationPage(batch.id);
+                };
+            }
+            
+            let statusText, statusClass;
+            if (hasApplied) {
+                statusText = '已提交';
+                statusClass = 'status-submitted';
+            } else if (batch.status === 'open') {
+                statusText = '申报中';
+                statusClass = 'status-open';
+            } else {
+                statusText = '已截止';
+                statusClass = 'status-closed';
+            }
             
             batchEl.innerHTML = `
                 <div class="batch-title">${batch.name}</div>
@@ -494,10 +587,13 @@ async function renderBatchList() {
                 </div>
             `;
             
-            if (batch.status === 'closed') {
+            if (batch.status === 'closed' && !hasApplied) {
                 batchEl.style.opacity = '0.6';
                 batchEl.style.cursor = 'default';
                 batchEl.onclick = null;
+            } else if (hasApplied) {
+                batchEl.style.opacity = '0.8';
+                batchEl.style.cursor = 'default';
             }
             
             container.appendChild(batchEl);
@@ -583,6 +679,15 @@ async function loadApplicationForEdit(applicationId) {
                 return;
             }
             
+            // 如果是驳回状态，提示用户编辑规则
+            if (currentApplication.status === 'rejected') {
+                const proceedEdit = confirm('您的申请已被驳回，可以修改后重新提交。\n\n编辑提示：\n• 已上传的文件会保留，无需重新上传\n• 您可以删除不需要的文件或添加新文件\n• 修改完成后点击"更新申请"重新提交\n\n是否继续编辑？');
+                if (!proceedEdit) {
+                    showStudentPage();
+                    return;
+                }
+            }
+            
             // 预填材料数据到界面
             await preloadApplicationData();
             
@@ -617,7 +722,27 @@ async function preloadApplicationData() {
     currentApplication.materials.forEach((material, index) => {
         const itemIndex = `edit_${material.id}_${index}`;
         console.log('Preloading material:', material, 'with index:', itemIndex);
+        console.log('Material files:', material.files);
+        
+        // 确保文件数据存在且格式正确
+        if (material.files && Array.isArray(material.files) && material.files.length > 0) {
+            console.log(`Material ${material.id} has ${material.files.length} files:`, material.files);
+        } else {
+            console.log(`Material ${material.id} has no files or files data is missing`);
+        }
+        
         addItemToCategory(material.category_id, material, itemIndex);
+        
+        // 验证文件是否正确加载到tempFiles
+        setTimeout(() => {
+            const key = `${material.category_id}_${itemIndex}`;
+            if (window.tempFiles && window.tempFiles[key]) {
+                console.log(`✅ Files loaded to tempFiles[${key}]:`, window.tempFiles[key]);
+            } else {
+                console.log(`❌ No files found in tempFiles[${key}]`);
+                console.log('Current tempFiles:', window.tempFiles);
+            }
+        }, 200);
     });
 }
 
@@ -835,6 +960,9 @@ function renderCategories(batchId) {
             addItemToCategory(material.category_id, material, itemIndex);
         });
     }
+    
+    // 确保提交按钮有正确的初始状态
+    forceResetSubmitButton();
 }
 
 function addNewItem(categoryId) {
@@ -924,8 +1052,8 @@ function addItemToCategory(categoryId, itemData = null, itemIndex, itemOptions =
     itemEl.className = 'item-entry';
     itemEl.id = `itemEntry${categoryId}_${itemIndex}`;
     
-    // 预填分数
-    const prefilledScore = itemData ? itemData.score : '';
+    // 预填分数 - 编辑模式下不预填，让系统重新计算
+    const prefilledScore = (itemData && !itemIndex.includes('edit_')) ? itemData.score : '';
     
     itemEl.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -981,9 +1109,15 @@ function addItemToCategory(categoryId, itemData = null, itemIndex, itemOptions =
         loadExistingFiles(categoryId, itemIndex, itemData.files);
     }
     
-    // 触发分数计算
+    // 触发分数计算 - 对于编辑模式，强制重新计算分数
     if (itemData) {
-        setTimeout(() => updateScoreCalculation(categoryId, itemIndex), 100);
+        setTimeout(() => {
+            updateScoreCalculation(categoryId, itemIndex);
+            // 如果是编辑模式，再次确保分数正确计算
+            if (itemIndex.includes('edit_')) {
+                setTimeout(() => updateScoreCalculation(categoryId, itemIndex), 200);
+            }
+        }, 100);
     }
     
     updateItemNumbers(categoryId);
@@ -1081,7 +1215,8 @@ function updateScoreCalculation(categoryId, itemIndex) {
             selectedGrade: selectedGrade,
             scoreKey: scoreKey,
             item: item,
-            itemScores: item ? item.scores : null
+            itemScores: item ? item.scores : null,
+            isEditMode: itemIndex.includes('edit_')
         });
         
         if (item.scores) {
@@ -1174,7 +1309,8 @@ async function handleItemFileSelect(categoryId, itemIndex, input) {
                 file_name: fileData.path,
                 file_path: fileData.path,
                 file_size: fileData.size,
-                file_type: fileData.type
+                file_type: fileData.type,
+                isExisting: false  // 标记为新上传的文件
             });
         });
         
@@ -1296,7 +1432,8 @@ function loadExistingFiles(categoryId, itemIndex, files) {
         uploadTime: file.upload_time ? formatDate(file.upload_time) : '',
         url: file.file_path ? (file.file_path.startsWith('uploads/') ? file.file_path : 'uploads/' + file.file_path) : '',
         path: file.file_path || file.path,
-        id: file.id
+        id: file.id,
+        isExisting: true  // 标记为已存在的文件
     }));
     
     console.log(`Loading existing files for ${key}:`, window.tempFiles[key]);
@@ -1310,9 +1447,14 @@ function renderItemFileList(categoryId, itemIndex, files) {
     files.forEach((file, fileIndex) => {
         const fileEl = document.createElement('div');
         fileEl.className = 'file-item';
+        
+        // 为已存在的文件添加标识
+        const existingLabel = file.isExisting ? '<span style="color: #22c55e; font-size: 10px; background: rgba(34, 197, 94, 0.2); padding: 2px 6px; border-radius: 4px; margin-left: 8px;">已有</span>' : '';
+        
         fileEl.innerHTML = `
             <div style="display: flex; align-items: center; flex: 1;">
                 <span class="file-name">${file.name}</span>
+                ${existingLabel}
                 <button class="btn-outline btn" onclick="previewFile('${file.url}', '${file.type}', '${file.name}')" style="margin-left: 10px; padding: 2px 8px; font-size: 12px;">预览</button>
             </div>
             <button class="file-remove" onclick="removeItemFile(${categoryId}, ${itemIndex}, ${fileIndex})">删除</button>
@@ -1420,78 +1562,210 @@ async function submitApplication() {
     // 收集所有申请数据
     const applicationData = [];
     
+    console.log('开始收集申请数据:', {
+        categories: categories,
+        currentApplication: currentApplication,
+        tempFiles: window.tempFiles
+    });
+    
     categories.forEach(category => {
         const container = document.getElementById(`itemsContainer${category.id}`);
+        console.log(`检查类目 ${category.id}:`, {
+            container: container,
+            hasContainer: !!container,
+            childrenCount: container ? container.children.length : 0
+        });
+        
         if (!container) return;
         
-        Array.from(container.children).forEach(itemEl => {
-            const itemIndex = itemEl.id.split('_')[1];
+        Array.from(container.children).forEach((itemEl, index) => {
+            console.log(`检查项目 ${index}:`, {
+                itemEl: itemEl,
+                itemElId: itemEl.id,
+                itemIndex: itemEl.id.split('_')[1]
+            });
+            
+            const itemIndex = itemEl.id.replace(/^itemEntry\d+_/, '');
             const itemSelect = document.getElementById(`itemSelect${category.id}_${itemIndex}`);
             const levelSelect = document.getElementById(`levelSelect${category.id}_${itemIndex}`);
             const gradeSelect = document.getElementById(`gradeSelect${category.id}_${itemIndex}`);
             
+            console.log(`表单元素检查:`, {
+                itemSelect: itemSelect,
+                levelSelect: levelSelect,
+                gradeSelect: gradeSelect,
+                itemSelectValue: itemSelect?.value,
+                levelSelectValue: levelSelect?.value,
+                gradeSelectValue: gradeSelect?.value,
+                hasAllElements: !!(itemSelect && levelSelect && gradeSelect),
+                hasAllValues: !!(itemSelect?.value && levelSelect?.value && gradeSelect?.value)
+            });
+            
             if (itemSelect && itemSelect.value && levelSelect && gradeSelect) {
                 const files = window.tempFiles && window.tempFiles[`${category.id}_${itemIndex}`] || [];
                 
-                if (files.length > 0) {
-                    // 计算分数
-                    const selectedItem = category.items.find(item => item.id == itemSelect.value);
-                    const scoreKey = `${levelSelect.value}_${gradeSelect.value}`;
-                    let score = 0;
-                    
-                    if (selectedItem && selectedItem.scores) {
-                        // 检查scores是否为对象格式 (从后端API返回的格式)
-                        if (selectedItem.scores[scoreKey]) {
-                            score = parseInt(selectedItem.scores[scoreKey]) || 0;
-                        }
-                        // 检查scores是否为数组格式 (备用格式)
-                        else if (Array.isArray(selectedItem.scores)) {
-                            const scoreConfig = selectedItem.scores.find(s => 
-                                s.level === levelSelect.value && s.grade === gradeSelect.value
-                            );
-                            if (scoreConfig) {
-                                score = parseInt(scoreConfig.score) || 0;
-                            }
+                console.log(`文件检查:`, {
+                    key: `${category.id}_${itemIndex}`,
+                    files: files,
+                    filesLength: files.length,
+                    tempFiles: window.tempFiles,
+                    fileDetails: files.map(f => ({
+                        name: f.name,
+                        id: f.id,
+                        isExisting: f.isExisting,
+                        hasId: !!f.id,
+                        hasIsExisting: !!f.isExisting
+                    }))
+                });
+                
+                // 计算分数
+                const selectedItem = category.items.find(item => item.id == itemSelect.value);
+                const scoreKey = `${levelSelect.value}_${gradeSelect.value}`;
+                let score = 0;
+                
+                if (selectedItem && selectedItem.scores) {
+                    // 检查scores是否为对象格式 (从后端API返回的格式)
+                    if (selectedItem.scores[scoreKey]) {
+                        score = parseInt(selectedItem.scores[scoreKey]) || 0;
+                    }
+                    // 检查scores是否为数组格式 (备用格式)
+                    else if (Array.isArray(selectedItem.scores)) {
+                        const scoreConfig = selectedItem.scores.find(s => 
+                            s.level === levelSelect.value && s.grade === gradeSelect.value
+                        );
+                        if (scoreConfig) {
+                            score = parseInt(scoreConfig.score) || 0;
                         }
                     }
-                    
-                    console.log('计算分数:', {
-                        categoryId: category.id,
-                        itemId: itemSelect.value,
-                        level: levelSelect.value,
-                        grade: gradeSelect.value,
-                        scoreKey: scoreKey,
-                        selectedItem: selectedItem,
-                        itemScores: selectedItem ? selectedItem.scores : null,
-                        score: score
-                    });
-                    
+                }
+                
+                // 检查是否是编辑模式下的已有项目（itemIndex包含edit_前缀）
+                const isEditingExistingItem = itemIndex.includes('edit_');
+                
+                console.log('计算分数:', {
+                    categoryId: category.id,
+                    itemId: itemSelect.value,
+                    level: levelSelect.value,
+                    grade: gradeSelect.value,
+                    scoreKey: scoreKey,
+                    selectedItem: selectedItem,
+                    itemScores: selectedItem ? selectedItem.scores : null,
+                    score: score,
+                    filesCount: files.length,
+                    hasFiles: files.length > 0,
+                    isUpdate: !!currentApplication,
+                    isEditingExistingItem: isEditingExistingItem,
+                    itemIndex: itemIndex
+                });
+                
+                // 修复编辑逻辑：
+                // 1. 新申请：必须有文件
+                // 2. 编辑申请：只要有选择项目就提交（不管是否有文件，因为可能只是修改级别/等级）
+                if (!currentApplication) {
+                    // 新申请：必须有文件
+                    if (files.length > 0) {
+                        applicationData.push({
+                            category_id: category.id,
+                            item_id: parseInt(itemSelect.value),
+                            award_level: levelSelect.value,
+                            award_grade: gradeSelect.value,
+                            score: score,
+                            files: files.map(file => {
+                                return {
+                                    path: file.path,
+                                    name: file.name,
+                                    size: file.size,
+                                    type: file.type,
+                                    original_name: file.name,
+                                    file_name: file.path,
+                                    file_path: file.path,
+                                    file_size: file.size,
+                                    file_type: file.type,
+                                    is_existing: false
+                                };
+                            })
+                        });
+                        console.log('新申请：添加项目到applicationData');
+                    }
+                } else {
+                    // 编辑申请：只要有选择项目就提交
+                    // 对于编辑模式，即使没有文件也要提交（可能是只修改了级别/等级）
                     applicationData.push({
                         category_id: category.id,
                         item_id: parseInt(itemSelect.value),
                         award_level: levelSelect.value,
                         award_grade: gradeSelect.value,
                         score: score,
-                        files: files.map(file => ({ 
-                            path: file.path, 
-                            name: file.name, 
-                            size: file.size, 
-                            type: file.type,
-                            original_name: file.name,
-                            file_name: file.path,
-                            file_path: file.path,
-                            file_size: file.size,
-                            file_type: file.type
-                        }))
+                        files: files.map(file => {
+                            // 如果文件有id或isExisting标记，说明是已存在的文件，保留原始信息
+                            if (file.id || file.isExisting) {
+                                return {
+                                    id: file.id,
+                                    path: file.path || file.url,
+                                    name: file.name,
+                                    size: file.size,
+                                    type: file.type,
+                                    original_name: file.name,
+                                    file_name: file.path || file.url,
+                                    file_path: file.path || file.url,
+                                    file_size: file.size,
+                                    file_type: file.type,
+                                    is_existing: true
+                                };
+                            } else {
+                                // 新上传的文件
+                                return {
+                                    path: file.path,
+                                    name: file.name,
+                                    size: file.size,
+                                    type: file.type,
+                                    original_name: file.name,
+                                    file_name: file.path,
+                                    file_path: file.path,
+                                    file_size: file.size,
+                                    file_type: file.type,
+                                    is_existing: false
+                                };
+                            }
+                        })
                     });
+                    console.log('编辑申请：添加项目到applicationData');
                 }
+            } else {
+                console.log('跳过项目：缺少必要的表单元素或值');
             }
         });
     });
     
+    console.log('数据收集完成，applicationData:', applicationData);
+    
     if (applicationData.length === 0) {
-        alert('请至少完成一个奖项的申报（选择项目并上传材料）');
+        console.log('调试信息 - applicationData为空:', {
+            currentApplication: currentApplication,
+            categories: categories,
+            tempFiles: window.tempFiles,
+            containers: categories.map(c => ({
+                categoryId: c.id,
+                container: document.getElementById(`itemsContainer${c.id}`),
+                children: document.getElementById(`itemsContainer${c.id}`)?.children?.length || 0
+            }))
+        });
+        
+        if (currentApplication) {
+            alert('请至少完成一个奖项的申报（选择项目）');
+        } else {
+            alert('请至少完成一个奖项的申报（选择项目并上传材料）');
+        }
         return;
+    }
+    
+    // 对于新申请，检查是否每个项目都有文件
+    if (!currentApplication) {
+        const itemsWithoutFiles = applicationData.filter(item => !item.files || item.files.length === 0);
+        if (itemsWithoutFiles.length > 0) {
+            alert('新申请时，每个奖项都必须上传证明材料');
+            return;
+        }
     }
     
     const btn = document.getElementById('submitBtn');
@@ -1510,13 +1784,31 @@ async function submitApplication() {
         }
         
         console.log('提交申请数据:', apiData);
+        console.log('申请材料详情:', apiData.materials.map(m => ({
+            category_id: m.category_id,
+            item_id: m.item_id,
+            award_level: m.award_level,
+            award_grade: m.award_grade,
+            score: m.score,
+            filesCount: m.files.length,
+            filesDetails: m.files.map(f => ({
+                name: f.name,
+                id: f.id,
+                isExisting: f.is_existing,
+                path: f.path || f.file_path
+            }))
+        })));
         
         const response = await ApiClient.post('api/applications.php', apiData);
         
         console.log('申请提交响应:', response);
         
         if (response.success) {
-            alert(currentApplication ? '申请更新成功' : '申请提交成功');
+            if (currentApplication) {
+                alert('申请更新成功！\n\n您的申请状态已重新变为"待审核"，请等待管理员审核。');
+            } else {
+                alert('申请提交成功！');
+            }
             window.tempFiles = {};
             currentApplication = null;
             showStudentPage();
@@ -1532,8 +1824,9 @@ async function submitApplication() {
             error: error.message
         });
         alert('提交失败：' + error.message);
-        btn.disabled = false;
-        btn.textContent = currentApplication ? '更新申请' : '提交申请';
+    } finally {
+        // 确保按钮状态总是能恢复
+        forceResetSubmitButton();
     }
 }
 
@@ -2075,6 +2368,7 @@ async function renderStudentMaterials() {
                             <button class="btn btn-outline" onclick="viewApplicationDetail(${application.id})" style="padding: 8px 16px; font-size: 13px; white-space: nowrap;">查看详情</button>
                             <button class="btn-success btn" onclick="reviewApplication(${application.id}, 'approved')" style="padding: 8px 16px; font-size: 13px; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none;">通过</button>
                             <button class="btn-danger btn" onclick="reviewApplication(${application.id}, 'rejected')" style="padding: 8px 16px; font-size: 13px; background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); border: none;">驳回</button>
+                            <button class="btn" onclick="deleteApplicationConfirm(${application.id}, '${application.user_name}')" style="padding: 8px 16px; font-size: 13px; background: linear-gradient(135deg, #7c2d12 0%, #dc2626 100%); border: none; color: white;">删除申请</button>
                         </div>
                     </div>
                     ${application.review_comment ? `
@@ -2157,6 +2451,30 @@ async function requestModification(applicationId) {
     } catch (error) {
         console.error('Request modification error:', error);
         alert('操作失败：' + error.message);
+    }
+}
+
+// 删除申请确认
+async function deleteApplicationConfirm(applicationId, userName) {
+    if (!confirm(`确定要删除 "${userName}" 的申请吗？删除后将无法恢复，包括所有相关的附件文件。`)) {
+        return;
+    }
+    
+    try {
+        const response = await ApiClient.post('api/applications.php', {
+            action: 'deleteApplication',
+            id: applicationId
+        });
+        
+        if (response.success) {
+            alert('申请删除成功！');
+            renderStudentMaterials();
+        } else {
+            throw new Error(response.message || '删除失败');
+        }
+    } catch (error) {
+        console.error('Delete application error:', error);
+        alert('删除失败：' + error.message);
     }
 }
 
@@ -2255,7 +2573,7 @@ async function addUser() {
     formData.append('real_name', document.getElementById('realName').value);
     formData.append('email', document.getElementById('userEmail').value);
     formData.append('phone', document.getElementById('userPhone').value);
-    formData.append('password', document.getElementById('newPassword').value);
+    formData.append('password', document.getElementById('addUserPassword').value);
     
     // 如果是学生，添加学生信息
     if (document.getElementById('userType').value === 'student') {
@@ -3038,6 +3356,11 @@ async function editApplication(applicationId) {
             
             // 跳转到申请页面并预填数据
             showApplicationPage(application.batch_id, applicationId);
+            
+            // 确保按钮状态正确
+            setTimeout(() => {
+                forceResetSubmitButton();
+            }, 1000);
         } else {
             alert('获取申请详情失败：' + (response.message || '未知错误'));
         }
@@ -3263,4 +3586,115 @@ async function exportRankingToExcel() {
         exportBtn.innerHTML = '📥 导出Excel';
         exportBtn.disabled = false;
     }
+}
+
+// 密码修改相关功能
+function showChangePasswordModal(isForced = false) {
+    const modal = document.getElementById('changePasswordModal');
+    const currentPasswordGroup = document.getElementById('currentPasswordGroup');
+    const currentPasswordInput = document.getElementById('currentPassword');
+    const form = document.getElementById('changePasswordForm');
+    
+    // 如果是首次登录强制修改密码，隐藏当前密码输入框
+    if (isForced) {
+        currentPasswordGroup.style.display = 'none';
+        currentPasswordInput.removeAttribute('required');
+        document.querySelector('#changePasswordModal .announcement-title').textContent = '首次登录 - 必须修改密码';
+        // 设置不可关闭
+        document.querySelector('#changePasswordModal .announcement-close').style.display = 'none';
+    } else {
+        currentPasswordGroup.style.display = 'block';
+        currentPasswordInput.setAttribute('required', 'required');
+        document.querySelector('#changePasswordModal .announcement-title').textContent = '修改密码';
+        document.querySelector('#changePasswordModal .announcement-close').style.display = 'block';
+    }
+    
+    // 重置表单
+    form.reset();
+    
+    // 显示弹窗
+    modal.classList.remove('hidden');
+    
+    // 添加表单提交事件处理
+    form.onsubmit = async function(e) {
+        e.preventDefault();
+        await handleChangePassword(isForced);
+    };
+}
+
+function closeChangePasswordModal() {
+    const modal = document.getElementById('changePasswordModal');
+    modal.classList.add('hidden');
+    document.getElementById('changePasswordForm').reset();
+}
+
+async function handleChangePassword(isForced = false) {
+    const currentPassword = document.getElementById('currentPassword').value;
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+    const submitBtn = document.querySelector('#changePasswordForm button[type="submit"]');
+    
+    // 验证新密码
+    if (newPassword.length < 6) {
+        alert('新密码长度不能少于6位');
+        return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+        alert('两次输入的密码不一致');
+        return;
+    }
+    
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = '修改中...';
+    submitBtn.disabled = true;
+    
+    try {
+        const response = await fetch('api/users.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                action: 'change_password',
+                current_password: currentPassword,
+                new_password: newPassword,
+                confirm_password: confirmPassword
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('密码修改成功');
+            closeChangePasswordModal();
+            
+            // 如果是强制修改密码，刷新页面重新登录检查
+            if (isForced) {
+                location.reload();
+            }
+        } else {
+            throw new Error(data.message || '密码修改失败');
+        }
+    } catch (error) {
+        console.error('Change password error:', error);
+        alert('密码修改失败: ' + error.message);
+    } finally {
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+    }
+}
+
+// 检查是否需要强制修改密码
+function checkForcePasswordChange(user) {
+    if (user.first_login && user.type === 'student') {
+        // 延迟显示，确保页面已经加载完成
+        setTimeout(() => {
+            alert('检测到您是首次登录，为了账户安全，请修改您的初始密码！');
+            showChangePasswordModal(true);
+        }, 1000);
+        return true;
+    }
+    return false;
 }

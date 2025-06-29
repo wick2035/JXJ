@@ -25,7 +25,7 @@ function getConnection() {
 function login($username, $password) {
     $pdo = getConnection();
     
-    $stmt = $pdo->prepare("SELECT id, username, password, type, real_name FROM users WHERE username = ?");
+    $stmt = $pdo->prepare("SELECT id, username, password, type, real_name, first_login FROM users WHERE username = ?");
     $stmt->execute([$username]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
     
@@ -78,7 +78,8 @@ function login($username, $password) {
             'id' => $user['id'],
             'username' => $user['username'],
             'type' => $user['type'],
-            'real_name' => $user['real_name']
+            'real_name' => $user['real_name'],
+            'first_login' => (bool)$user['first_login']
         ]
     ];
 }
@@ -95,13 +96,20 @@ function checkLogin() {
         return ['success' => false, 'message' => '未登录'];
     }
     
+    // 从数据库获取最新的首次登录状态
+    $pdo = getConnection();
+    $stmt = $pdo->prepare("SELECT first_login FROM users WHERE id = ?");
+    $stmt->execute([$_SESSION['user_id']]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    
     return [
         'success' => true,
         'user' => [
             'id' => $_SESSION['user_id'],
             'username' => $_SESSION['username'],
             'type' => $_SESSION['user_type'],
-            'real_name' => $_SESSION['real_name']
+            'real_name' => $_SESSION['real_name'],
+            'first_login' => $user ? (bool)$user['first_login'] : false
         ]
     ];
 }

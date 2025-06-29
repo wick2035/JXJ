@@ -212,6 +212,67 @@ function deleteUser($id) {
     return ['success' => true, 'message' => '用户删除成功'];
 }
 
+// 修改密码（用户自己修改）
+function changePassword($data) {
+    // 添加调试信息
+    error_log('changePassword function called with data: ' . print_r($data, true));
+    
+    $loginResult = checkLogin();
+    if (!$loginResult['success']) {
+        return $loginResult;
+    }
+    
+    $pdo = getConnection();
+    $userId = $_SESSION['user_id'];
+    
+    // 获取当前用户信息
+    $stmt = $pdo->prepare("SELECT password, first_login FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$user) {
+        return ['success' => false, 'message' => '用户不存在'];
+    }
+    
+    // 如果不是首次登录，需要验证当前密码
+    if (!$user['first_login'] && !empty($data['current_password'])) {
+        if (!password_verify($data['current_password'], $user['password'])) {
+            return ['success' => false, 'message' => '当前密码错误'];
+        }
+    }
+    
+    // 验证新密码
+    if (empty($data['new_password'])) {
+        error_log('New password is empty');
+        return ['success' => false, 'message' => '新密码不能为空'];
+    }
+    
+    $passwordLength = strlen($data['new_password']);
+    error_log('Password validation: length=' . $passwordLength . ', password="' . $data['new_password'] . '"');
+    
+    if ($passwordLength < 6) {
+        error_log('Password too short: ' . $passwordLength . ' characters');
+        return ['success' => false, 'message' => '新密码长度不能少于6位'];
+    }
+    
+    if ($data['new_password'] !== $data['confirm_password']) {
+        return ['success' => false, 'message' => '两次输入的密码不一致'];
+    }
+    
+    // 更新密码
+    $hashedPassword = password_hash($data['new_password'], PASSWORD_DEFAULT);
+    $stmt = $pdo->prepare("UPDATE users SET password = ?, first_login = 0, password_changed_at = CURRENT_TIMESTAMP WHERE id = ?");
+    $success = $stmt->execute([$hashedPassword, $userId]);
+    
+    if ($success) {
+        error_log("Password changed successfully for user ID: {$userId}");
+        return ['success' => true, 'message' => '密码修改成功'];
+    } else {
+        error_log("Failed to change password for user ID: {$userId}");
+        return ['success' => false, 'message' => '密码修改失败'];
+    }
+}
+
 // 批量导入用户
 function batchImportUsers($filePath) {
     $authResult = requireAdmin();
@@ -461,6 +522,28 @@ try {
             
             // 执行批量导入
             $result = batchImportUsers($tempFileName);
+            echo json_encode($result);
+            break;
+            
+        case 'change_password':
+            // 合并所有数据源
+            $all_data = array_merge($_POST, $json_data);
+            $data = [
+                'current_password' => $all_data['current_password'] ?? '',
+                'new_password' => $all_data['new_password'] ?? '',
+                'confirm_password' => $all_data['confirm_password'] ?? ''
+            ];
+            
+            // 添加调试信息
+            error_log('Change password request data: ' . print_r($data, true));
+            error_log('New password length: ' . strlen($data['new_password']));
+            
+            if (empty($data['new_password']) || empty($data['confirm_password'])) {
+                echo json_encode(['success' => false, 'message' => '新密码和确认密码不能为空']);
+                break;
+            }
+            
+            $result = changePassword($data);
             echo json_encode($result);
             break;
             

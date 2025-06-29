@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时调试工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .debug-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 400px;
+            background: white;
+            border: 2px solid #007bff;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            z-index: 10000;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .debug-header {
+            background: #007bff;
+            color: white;
+            padding: 10px;
+            border-radius: 6px 6px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .debug-content {
+            padding: 15px;
+        }
+        .debug-section {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .debug-section h4 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .debug-item {
+            margin: 5px 0;
+            padding: 5px;
+            background: white;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .success { background: #e7ffe7; color: #198754; }
+        .error { background: #ffe7e7; color: #d63384; }
+        .warning { background: #fff3cd; color: #856404; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin: 2px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .close-btn {
+            background: #dc3545;
+        }
+        .close-btn:hover {
+            background: #c82333;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>实时调试工具</h1>
+    <p>这个页面会监控主页面的数据变化。请在主页面进行编辑申请操作，同时观察这里的调试信息。</p>
+    
+    <div class="debug-panel" id="debugPanel">
+        <div class="debug-header">
+            <span>🔍 实时调试面板</span>
+            <button class="close-btn" onclick="togglePanel()">×</button>
+        </div>
+        <div class="debug-content">
+            <div class="debug-section">
+                <h4>连接状态</h4>
+                <div id="connectionStatus" class="debug-item">初始化中...</div>
+            </div>
+            
+            <div class="debug-section">
+                <h4>tempFiles监控</h4>
+                <button onclick="checkTempFiles()">检查tempFiles</button>
+                <button onclick="startMonitoring()">开始监控</button>
+                <div id="tempFilesStatus" class="debug-item">等待检查...</div>
+                <pre id="tempFilesData"></pre>
+            </div>
+            
+            <div class="debug-section">
+                <h4>提交数据监控</h4>
+                <button onclick="interceptSubmit()">拦截提交</button>
+                <div id="submitStatus" class="debug-item">等待提交...</div>
+                <pre id="submitData"></pre>
+            </div>
+            
+            <div class="debug-section">
+                <h4>控制台日志</h4>
+                <button onclick="clearLogs()">清除日志</button>
+                <div id="consoleLogs" style="max-height: 150px; overflow-y: auto; font-size: 10px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let monitoringInterval = null;
+        let originalConsoleLog = console.log;
+        let logHistory = [];
+
+        // 重写console.log来捕获日志
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+            logHistory.push(new Date().toLocaleTimeString() + ': ' + args.join(' '));
+            if (logHistory.length > 20) logHistory = logHistory.slice(-20);
+            updateConsoleLogs();
+        };
+
+        function updateConsoleLogs() {
+            const container = document.getElementById('consoleLogs');
+            container.innerHTML = logHistory.map(log => 
+                `<div style="margin: 2px 0; padding: 2px; background: #f8f9fa; border-radius: 2px;">${log}</div>`
+            ).join('');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function togglePanel() {
+            const panel = document.getElementById('debugPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function checkTempFiles() {
+            try {
+                // 尝试访问主窗口的tempFiles
+                const mainWindow = window.opener || window.parent || window;
+                
+                if (mainWindow.tempFiles) {
+                    const tempFiles = mainWindow.tempFiles;
+                    const keys = Object.keys(tempFiles);
+                    
+                    document.getElementById('tempFilesStatus').innerHTML = 
+                        `<div class="success">找到tempFiles，共 ${keys.length} 个键</div>`;
+                    
+                    document.getElementById('tempFilesData').textContent = 
+                        JSON.stringify(tempFiles, null, 2);
+                    
+                    console.log('tempFiles检查:', tempFiles);
+                } else {
+                    document.getElementById('tempFilesStatus').innerHTML = 
+                        `<div class="error">未找到tempFiles或为空</div>`;
+                    document.getElementById('tempFilesData').textContent = '无数据';
+                }
+            } catch (error) {
+                document.getElementById('tempFilesStatus').innerHTML = 
+                    `<div class="error">访问失败: ${error.message}</div>`;
+                console.error('检查tempFiles失败:', error);
+            }
+        }
+
+        function startMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+                document.getElementById('tempFilesStatus').innerHTML += 
+                    `<div class="warning">监控已停止</div>`;
+                return;
+            }
+            
+            monitoringInterval = setInterval(checkTempFiles, 2000);
+            document.getElementById('tempFilesStatus').innerHTML += 
+                `<div class="success">开始监控（每2秒检查一次）</div>`;
+        }
+
+        function interceptSubmit() {
+            try {
+                const mainWindow = window.opener || window.parent || window;
+                
+                // 保存原始的submitApplication函数
+                if (mainWindow.submitApplication && !mainWindow._originalSubmitApplication) {
+                    mainWindow._originalSubmitApplication = mainWindow.submitApplication;
+                    
+                    // 重写submitApplication函数
+                    mainWindow.submitApplication = async function() {
+                        console.log('🔍 拦截到submitApplication调用');
+                        
+                        // 检查当前状态
+                        const currentTempFiles = mainWindow.tempFiles || {};
+                        const currentApplication = mainWindow.currentApplication;
+                        
+                        document.getElementById('submitStatus').innerHTML = 
+                            `<div class="warning">检测到提交请求...</div>`;
+                        
+                        document.getElementById('submitData').textContent = 
+                            JSON.stringify({
+                                tempFiles: currentTempFiles,
+                                currentApplication: currentApplication ? {
+                                    id: currentApplication.id,
+                                    status: currentApplication.status
+                                } : null,
+                                timestamp: new Date().toLocaleString()
+                            }, null, 2);
+                        
+                        // 询问是否继续提交
+                        const shouldContinue = confirm(
+                            '调试工具检测到提交请求！\n\n' +
+                            `tempFiles键数: ${Object.keys(currentTempFiles).length}\n` +
+                            `当前申请ID: ${currentApplication?.id || '无'}\n\n` +
+                            '是否继续提交？点击"取消"可以查看详细数据。'
+                        );
+                        
+                        if (shouldContinue) {
+                            console.log('🚀 继续执行原始提交...');
+                            return mainWindow._originalSubmitApplication.apply(this, arguments);
+                        } else {
+                            console.log('⛔ 用户取消提交');
+                            document.getElementById('submitStatus').innerHTML = 
+                                `<div class="error">提交被用户取消</div>`;
+                        }
+                    };
+                    
+                    document.getElementById('submitStatus').innerHTML = 
+                        `<div class="success">提交拦截已激活</div>`;
+                } else {
+                    document.getElementById('submitStatus').innerHTML = 
+                        `<div class="warning">submitApplication函数未找到或已拦截</div>`;
+                }
+            } catch (error) {
+                document.getElementById('submitStatus').innerHTML = 
+                    `<div class="error">拦截设置失败: ${error.message}</div>`;
+                console.error('拦截设置失败:', error);
+            }
+        }
+
+        function clearLogs() {
+            logHistory = [];
+            updateConsoleLogs();
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('connectionStatus').innerHTML = 
+                `<div class="success">调试工具已准备就绪</div>`;
+            
+            // 自动检查tempFiles
+            setTimeout(checkTempFiles, 1000);
+            
+            console.log('🔧 实时调试工具已启动');
+        });
+
+        // 页面关闭时清理
+        window.addEventListener('beforeunload', function() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+            }
+        });
+    </script>
+</body>
+</html> 

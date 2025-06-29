@@ -26,6 +26,17 @@ function getBatches() {
     return ['success' => true, 'data' => $batches];
 }
 
+// 检查用户是否已在某批次中提交申请
+function checkUserApplicationInBatch($userId, $batchId) {
+    $pdo = getConnection();
+    
+    $stmt = $pdo->prepare("SELECT id FROM applications WHERE user_id = ? AND batch_id = ?");
+    $stmt->execute([$userId, $batchId]);
+    $application = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    return ['success' => true, 'has_applied' => !empty($application), 'application_id' => $application['id'] ?? null];
+}
+
 // 获取用户申请列表
 function getUserApplications($userId) {
     $pdo = getConnection();
@@ -140,8 +151,44 @@ function saveApplication($userId, $batchId, $materials) {
         
         if ($existingApp) {
             $applicationId = $existingApp['id'];
-            // 删除旧的材料数据
-            $stmt = $pdo->prepare("DELETE FROM application_materials WHERE application_id = ?");
+            
+            error_log("Updating existing application ID: $applicationId");
+            
+            // 🔥 重大修复：完全重新设计更新逻辑
+            // 不再删除旧材料，而是智能更新现有材料和文件
+            
+            // 1. 获取现有材料和文件的映射关系
+            $stmt = $pdo->prepare("
+                SELECT am.id as material_id, am.category_id, am.item_id, 
+                       uf.id as file_id, uf.original_name, uf.file_path
+                FROM application_materials am
+                LEFT JOIN uploaded_files uf ON am.id = uf.material_id
+                WHERE am.application_id = ?
+            ");
+            $stmt->execute([$applicationId]);
+            $existingData = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            error_log("Existing materials and files: " . print_r($existingData, true));
+            
+            // 2. 构建现有材料的索引（按 category_id + item_id）
+            $existingMaterialsMap = [];
+            $existingFilesMap = [];
+            foreach ($existingData as $row) {
+                $key = $row['category_id'] . '_' . $row['item_id'];
+                if (!isset($existingMaterialsMap[$key])) {
+                    $existingMaterialsMap[$key] = $row['material_id'];
+                    $existingFilesMap[$key] = [];
+                }
+                if ($row['file_id']) {
+                    $existingFilesMap[$key][] = $row['file_id'];
+                }
+            }
+            
+            error_log("Existing materials map: " . print_r($existingMaterialsMap, true));
+            error_log("Existing files map: " . print_r($existingFilesMap, true));
+            
+            // 重新设置申请状态为待审核，清除审核相关字段
+            $stmt = $pdo->prepare("UPDATE applications SET status = 'pending', review_comment = NULL, reviewed_by = NULL, reviewed_at = NULL WHERE id = ?");
             $stmt->execute([$applicationId]);
         } else {
             // 创建新申请
@@ -151,54 +198,131 @@ function saveApplication($userId, $batchId, $materials) {
         }
         
         $totalScore = 0;
+        $processedMaterials = []; // 跟踪处理过的材料
         
-        // 保存材料数据
+        // 保存/更新材料数据
         foreach ($materials as $material) {
             // 确保score不为null
             $score = isset($material['score']) ? (int)$material['score'] : 0;
             
-            $stmt = $pdo->prepare("
-                INSERT INTO application_materials 
-                (application_id, category_id, item_id, award_level, award_grade, score) 
-                VALUES (?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([
-                $applicationId,
-                $material['category_id'],
-                $material['item_id'],
-                $material['award_level'],
-                $material['award_grade'],
-                $score
-            ]);
-            $materialId = $pdo->lastInsertId();
+            error_log("Processing material: " . print_r($material, true));
+            
+            $materialKey = $material['category_id'] . '_' . $material['item_id'];
+            $processedMaterials[] = $materialKey;
+            
+            // 🔥 关键修复：检查是否存在相同的材料
+            if ($existingApp && isset($existingMaterialsMap[$materialKey])) {
+                // 更新现有材料
+                $materialId = $existingMaterialsMap[$materialKey];
+                error_log("Updating existing material ID: $materialId for key: $materialKey");
+                
+                $stmt = $pdo->prepare("
+                    UPDATE application_materials 
+                    SET award_level = ?, award_grade = ?, score = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $material['award_level'],
+                    $material['award_grade'],
+                    $score,
+                    $materialId
+                ]);
+            } else {
+                // 插入新材料
+                error_log("Inserting new material for key: $materialKey");
+                
+                $stmt = $pdo->prepare("
+                    INSERT INTO application_materials 
+                    (application_id, category_id, item_id, award_level, award_grade, score) 
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $applicationId,
+                    $material['category_id'],
+                    $material['item_id'],
+                    $material['award_level'],
+                    $material['award_grade'],
+                    $score
+                ]);
+                $materialId = $pdo->lastInsertId();
+            }
             
             $totalScore += $score;
             
-            // 保存文件数据
-            if (isset($material['files'])) {
-                foreach ($material['files'] as $file) {
-                    // 确保文件数据完整
-                    $originalName = $file['original_name'] ?? $file['name'] ?? '未知文件';
-                    $fileName = $file['file_name'] ?? $file['path'] ?? '';
-                    $filePath = $file['file_path'] ?? $file['path'] ?? '';
-                    $fileSize = $file['file_size'] ?? $file['size'] ?? 0;
-                    $fileType = $file['file_type'] ?? $file['type'] ?? '';
+            // 🔥 关键修复：智能处理文件数据
+            if (isset($material['files']) && is_array($material['files']) && count($material['files']) > 0) {
+                error_log("Material has " . count($material['files']) . " files to process");
+                
+                // 收集要保留的文件ID
+                $keepFileIds = [];
+                
+                foreach ($material['files'] as $fileIndex => $file) {
+                    error_log("Processing file $fileIndex: " . print_r($file, true));
                     
-                    error_log("Saving file: originalName=$originalName, fileName=$fileName, filePath=$filePath");
-                    
+                    if ((isset($file['is_existing']) && $file['is_existing']) || (isset($file['id']) && $file['id'])) {
+                        // 已存在的文件，只需要保留，不需要移动
+                        $fileId = $file['id'];
+                        if ($fileId && is_numeric($fileId)) {
+                            $keepFileIds[] = $fileId;
+                            error_log("Keeping existing file ID: $fileId");
+                        }
+                    } else {
+                        // 新上传的文件，插入新记录
+                        $originalName = $file['original_name'] ?? $file['name'] ?? '未知文件';
+                        $fileName = $file['file_name'] ?? $file['path'] ?? '';
+                        $filePath = $file['file_path'] ?? $file['path'] ?? '';
+                        $fileSize = $file['file_size'] ?? $file['size'] ?? 0;
+                        $fileType = $file['file_type'] ?? $file['type'] ?? '';
+                        
+                        error_log("Saving new file: originalName=$originalName, fileName=$fileName, filePath=$filePath");
+                        
+                        $stmt = $pdo->prepare("
+                            INSERT INTO uploaded_files 
+                            (material_id, original_name, file_name, file_path, file_size, file_type) 
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        ");
+                        $stmt->execute([
+                            $materialId,
+                            $originalName,
+                            $fileName,
+                            $filePath,
+                            $fileSize,
+                            $fileType
+                        ]);
+                        $newFileId = $pdo->lastInsertId();
+                        $keepFileIds[] = $newFileId;
+                        error_log("Saved new file with ID: $newFileId");
+                    }
+                }
+                
+                // 删除该材料下不再需要的文件
+                if (!empty($keepFileIds)) {
+                    $placeholders = str_repeat('?,', count($keepFileIds) - 1) . '?';
                     $stmt = $pdo->prepare("
-                        INSERT INTO uploaded_files 
-                        (material_id, original_name, file_name, file_path, file_size, file_type) 
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        DELETE FROM uploaded_files 
+                        WHERE material_id = ? AND id NOT IN ($placeholders)
                     ");
-                    $stmt->execute([
-                        $materialId,
-                        $originalName,
-                        $fileName,
-                        $filePath,
-                        $fileSize,
-                        $fileType
-                    ]);
+                    $params = array_merge([$materialId], $keepFileIds);
+                    $stmt->execute($params);
+                    error_log("For material $materialId, kept files: " . implode(', ', $keepFileIds));
+                }
+                
+            } else if ($existingApp && isset($existingFilesMap[$materialKey])) {
+                // 如果前端没有传文件数据，但数据库中有文件，保留原有文件
+                error_log("No files from frontend, but existing files found for material $materialId - keeping existing files");
+            } else {
+                error_log("No files data for material ID: $materialId");
+            }
+        }
+        
+        // 🔥 删除不再需要的材料（用户删除的材料）
+        if ($existingApp && !empty($existingMaterialsMap)) {
+            foreach ($existingMaterialsMap as $key => $materialId) {
+                if (!in_array($key, $processedMaterials)) {
+                    error_log("Deleting unused material ID: $materialId for key: $key");
+                    $stmt = $pdo->prepare("DELETE FROM application_materials WHERE id = ?");
+                    $stmt->execute([$materialId]);
+                    // 文件会因为外键约束自动删除
                 }
             }
         }
@@ -335,6 +459,49 @@ function deleteBatch($id) {
     }
 }
 
+// 删除申请（管理员）
+function deleteApplication($id) {
+    $authResult = requireAdmin();
+    if (!$authResult['success']) {
+        return $authResult;
+    }
+    
+    $pdo = getConnection();
+    
+    try {
+        $pdo->beginTransaction();
+        
+        // 获取申请详情，包括文件信息
+        $stmt = $pdo->prepare("
+            SELECT uf.file_path 
+            FROM uploaded_files uf
+            JOIN application_materials am ON uf.material_id = am.id
+            WHERE am.application_id = ?
+        ");
+        $stmt->execute([$id]);
+        $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 删除物理文件
+        foreach ($files as $file) {
+            $filePath = '../' . $file['file_path'];
+            if (file_exists($filePath)) {
+                unlink($filePath);
+            }
+        }
+        
+        // 删除数据库记录（由于外键约束，会自动级联删除相关记录）
+        $stmt = $pdo->prepare("DELETE FROM applications WHERE id = ?");
+        $stmt->execute([$id]);
+        
+        $pdo->commit();
+        return ['success' => true, 'message' => '申请删除成功'];
+        
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        return ['success' => false, 'message' => '删除失败: ' . $e->getMessage()];
+    }
+}
+
 // 处理请求
 try {
     $action = $_GET['action'] ?? $_POST['action'] ?? '';
@@ -363,6 +530,23 @@ try {
         case 'get_batches':
             $result = getBatches();
             echo json_encode(['success' => true, 'batches' => $result['data']]);
+            break;
+            
+        case 'check_application_status':
+            $loginResult = checkLogin();
+            if (!$loginResult['success']) {
+                echo json_encode($loginResult);
+                break;
+            }
+            
+            $batchId = $_GET['batch_id'] ?? 0;
+            if (!$batchId) {
+                echo json_encode(['success' => false, 'message' => '批次ID不能为空']);
+                break;
+            }
+            
+            $result = checkUserApplicationInBatch($_SESSION['user_id'], $batchId);
+            echo json_encode($result);
             break;
             
         case 'get_user_applications':
@@ -532,6 +716,29 @@ try {
             }
             
             $result = deleteBatch($id);
+            echo json_encode($result);
+            break;
+            
+        case 'deleteApplication':
+            // 处理JSON请求体中的id参数
+            $inputData = file_get_contents('php://input');
+            $requestData = json_decode($inputData, true);
+            
+            $id = 0;
+            if ($requestData && isset($requestData['id'])) {
+                $id = (int)$requestData['id'];
+            } else {
+                $id = (int)($_POST['id'] ?? 0);
+            }
+            
+            error_log("Delete application request - ID: $id, POST: " . print_r($_POST, true) . ", JSON: " . print_r($requestData, true));
+            
+            if (!$id) {
+                echo json_encode(['success' => false, 'message' => '申请ID不能为空']);
+                break;
+            }
+            
+            $result = deleteApplication($id);
             echo json_encode($result);
             break;
             

@@ -12,6 +12,8 @@ CREATE TABLE `users` (
   `student_id` varchar(20) DEFAULT NULL,
   `class` varchar(50) DEFAULT NULL,
   `major` varchar(50) DEFAULT NULL,
+  `first_login` tinyint(1) NOT NULL DEFAULT 1,
+  `password_changed_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

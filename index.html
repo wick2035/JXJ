@@ -92,7 +92,7 @@
                     <button type="submit" class="login-btn">登录系统</button>
                 </form>
                 <div style="margin-top: 20px; color: rgba(255, 255, 255, 0.6); font-size: 12px;">
-                    学生：123/123 | 管理员：1234/1234
+                    账号：学号 | 初始密码：学号.0
                 </div>
             </div>
         </div>
@@ -109,6 +109,7 @@
                         <div>学生用户</div>
                         <div style="font-size: 12px; opacity: 0.7;">申报系统</div>
                     </div>
+                    <button class="btn-secondary" style="margin-right: 10px;" onclick="showChangePasswordModal()">修改密码</button>
                     <button class="logout-btn" onclick="logout()">退出</button>
                 </div>
             </div>
@@ -413,7 +414,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">密码</label>
-                                    <input type="password" id="newPassword" class="form-input" placeholder="请输入密码" required>
+                                    <input type="password" id="addUserPassword" class="form-input" placeholder="请输入密码" required>
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">用户类型</label>
@@ -575,6 +576,36 @@
                     <button class="announcement-btn-action btn-no-remind" onclick="dontRemindToday()">今日不再提醒</button>
                     <button class="announcement-btn-action btn-close" onclick="closeAnnouncementModal()">知道了</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 修改密码弹窗 -->
+    <div id="changePasswordModal" class="announcement-modal hidden">
+        <div class="announcement-content glass" style="min-width: 450px; max-width: 500px;">
+            <div class="announcement-header">
+                <h2 class="announcement-title">修改密码</h2>
+                <button class="announcement-close" onclick="closeChangePasswordModal()">×</button>
+            </div>
+            <div class="announcement-body">
+                <form id="changePasswordForm">
+                    <div class="form-group" id="currentPasswordGroup">
+                        <label class="form-label">当前密码</label>
+                        <input type="password" id="currentPassword" class="form-input" placeholder="请输入当前密码">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">新密码</label>
+                        <input type="password" id="newPassword" class="form-input" placeholder="请输入新密码（至少6位）" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">确认新密码</label>
+                        <input type="password" id="confirmPassword" class="form-input" placeholder="请再次输入新密码" required>
+                    </div>
+                    <div class="announcement-actions">
+                        <button type="button" class="btn-cancel" onclick="closeChangePasswordModal()">取消</button>
+                        <button type="submit" class="btn-primary">确认修改</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
