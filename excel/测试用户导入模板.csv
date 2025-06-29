@@ -1,0 +1,4 @@
+用户名,密码,用户类型,真实姓名,邮箱,手机号,学号,班级,专业
+test_student01,123456,student,测试学生1,test1@test.com,13800000001,TEST001,测试班级,测试专业
+test_student02,123456,student,测试学生2,test2@test.com,13800000002,TEST002,测试班级,测试专业
+test_admin01,123456,admin,测试管理员,testadmin@test.com,13900000001,,, 

@@ -269,22 +269,94 @@ function getStats() {
     return ['success' => true, 'data' => $stats];
 }
 
+// 添加批次
+function addBatch($name, $description, $startDate, $endDate, $status) {
+    $authResult = requireAdmin();
+    if (!$authResult['success']) {
+        return $authResult;
+    }
+    
+    $pdo = getConnection();
+    
+    try {
+        $stmt = $pdo->prepare("INSERT INTO batches (name, description, start_date, end_date, status) VALUES (?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $description, $startDate, $endDate, $status]);
+        
+        return ['success' => true, 'message' => '批次添加成功', 'id' => $pdo->lastInsertId()];
+    } catch (Exception $e) {
+        return ['success' => false, 'message' => '添加失败: ' . $e->getMessage()];
+    }
+}
+
+// 更新批次
+function updateBatch($id, $name, $description, $startDate, $endDate, $status) {
+    $authResult = requireAdmin();
+    if (!$authResult['success']) {
+        return $authResult;
+    }
+    
+    $pdo = getConnection();
+    
+    try {
+        $stmt = $pdo->prepare("UPDATE batches SET name = ?, description = ?, start_date = ?, end_date = ?, status = ? WHERE id = ?");
+        $stmt->execute([$name, $description, $startDate, $endDate, $status, $id]);
+        
+        return ['success' => true, 'message' => '批次更新成功'];
+    } catch (Exception $e) {
+        return ['success' => false, 'message' => '更新失败: ' . $e->getMessage()];
+    }
+}
+
+// 删除批次
+function deleteBatch($id) {
+    $authResult = requireAdmin();
+    if (!$authResult['success']) {
+        return $authResult;
+    }
+    
+    $pdo = getConnection();
+    
+    try {
+        // 检查是否有申请使用此批次
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM applications WHERE batch_id = ?");
+        $stmt->execute([$id]);
+        $count = $stmt->fetchColumn();
+        
+        if ($count > 0) {
+            return ['success' => false, 'message' => '该批次已有申请，无法删除'];
+        }
+        
+        $stmt = $pdo->prepare("DELETE FROM batches WHERE id = ?");
+        $stmt->execute([$id]);
+        
+        return ['success' => true, 'message' => '批次删除成功'];
+    } catch (Exception $e) {
+        return ['success' => false, 'message' => '删除失败: ' . $e->getMessage()];
+    }
+}
+
 // 处理请求
 try {
     $action = $_GET['action'] ?? $_POST['action'] ?? '';
     
-    // 如果action为空，尝试从JSON请求体获取
-    if (empty($action)) {
-        $inputData = file_get_contents('php://input');
+    // 获取JSON数据（如果有的话）
+    $inputData = file_get_contents('php://input');
+    $json_data = [];
+    if ($inputData) {
         $requestData = json_decode($inputData, true);
-        if ($requestData && isset($requestData['action'])) {
-            $action = $requestData['action'];
+        if ($requestData && is_array($requestData)) {
+            $json_data = $requestData;
+            if (isset($requestData['action']) && empty($action)) {
+                $action = $requestData['action'];
+            }
         }
     }
     
     error_log("Applications API called with action: $action");
     error_log("Request method: " . $_SERVER['REQUEST_METHOD']);
     error_log("Content type: " . ($_SERVER['CONTENT_TYPE'] ?? 'not set'));
+    error_log("POST data: " . print_r($_POST, true));
+    error_log("JSON data: " . print_r($json_data, true));
     
     switch ($action) {
         case 'getBatches':
@@ -294,6 +366,7 @@ try {
             break;
             
         case 'get_user_applications':
+        case 'getMyApplications':
             $loginResult = checkLogin();
             if (!$loginResult['success']) {
                 echo json_encode($loginResult);
@@ -301,7 +374,7 @@ try {
             }
             
             $result = getUserApplications($_SESSION['user_id']);
-            echo json_encode($result);
+            echo json_encode(['success' => true, 'applications' => $result['data']]);
             break;
             
         case 'get_detail':
@@ -324,6 +397,7 @@ try {
             break;
             
         case 'get_all':
+        case 'getAllApplications':
             $result = getAllApplications();
             echo json_encode($result);
             break;
@@ -384,6 +458,80 @@ try {
             
         case 'stats':
             $result = getStats();
+            echo json_encode($result);
+            break;
+            
+        case 'addBatch':
+        case 'add_batch':
+            error_log("Processing addBatch request");
+            error_log("POST data: " . print_r($_POST, true));
+            error_log("JSON data: " . print_r($json_data, true));
+            
+            // 合并所有数据源
+            $all_data = array_merge($_POST, $json_data);
+            $name = trim($all_data['name'] ?? '');
+            $description = trim($all_data['description'] ?? '');
+            $startDate = trim($all_data['start_date'] ?? '');
+            $endDate = trim($all_data['end_date'] ?? '');
+            $status = trim($all_data['status'] ?? 'open');
+            
+            error_log("Extracted data: name='$name', description='$description', startDate='$startDate', endDate='$endDate', status='$status'");
+            
+            if (empty($name)) {
+                error_log("Validation failed: name is empty");
+                echo json_encode(['success' => false, 'message' => '批次名称不能为空']);
+                break;
+            }
+            
+            if (empty($startDate)) {
+                error_log("Validation failed: startDate is empty");
+                echo json_encode(['success' => false, 'message' => '开始日期不能为空']);
+                break;
+            }
+            
+            if (empty($endDate)) {
+                error_log("Validation failed: endDate is empty");
+                echo json_encode(['success' => false, 'message' => '结束日期不能为空']);
+                break;
+            }
+            
+            $result = addBatch($name, $description, $startDate, $endDate, $status);
+            error_log("addBatch result: " . print_r($result, true));
+            echo json_encode($result);
+            break;
+            
+        case 'updateBatch':
+        case 'update_batch':
+            // 合并所有数据源
+            $all_data = array_merge($_POST, $json_data);
+            $id = $all_data['id'] ?? 0;
+            $name = $all_data['name'] ?? '';
+            $description = $all_data['description'] ?? '';
+            $startDate = $all_data['start_date'] ?? '';
+            $endDate = $all_data['end_date'] ?? '';
+            $status = $all_data['status'] ?? 'open';
+            
+            if (!$id || empty($name) || empty($startDate) || empty($endDate)) {
+                echo json_encode(['success' => false, 'message' => '参数不完整']);
+                break;
+            }
+            
+            $result = updateBatch($id, $name, $description, $startDate, $endDate, $status);
+            echo json_encode($result);
+            break;
+            
+        case 'deleteBatch':
+        case 'delete_batch':
+            // 合并所有数据源
+            $all_data = array_merge($_POST, $json_data);
+            $id = $all_data['id'] ?? 0;
+            
+            if (!$id) {
+                echo json_encode(['success' => false, 'message' => '批次ID不能为空']);
+                break;
+            }
+            
+            $result = deleteBatch($id);
             echo json_encode($result);
             break;
             

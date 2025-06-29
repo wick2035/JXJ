@@ -93,8 +93,12 @@ function processFile($tmpName, $originalName, $fileSize, $fileType, $uploadDir) 
     
     // 检查文件类型
     $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-    if (!in_array($fileType, $allowedTypes)) {
-        return ['success' => false, 'message' => "文件 {$originalName} 类型不支持"];
+    $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'doc', 'docx'];
+    
+    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+    
+    if (!in_array($fileType, $allowedTypes) && !in_array($extension, $allowedExtensions)) {
+        return ['success' => false, 'message' => "文件 {$originalName} 类型不支持，仅支持：JPG、PNG、GIF、PDF、DOC、DOCX"];
     }
     
     // 生成唯一文件名
@@ -199,7 +203,18 @@ try {
             }
             
             if (!$files) {
-                echo json_encode(['success' => false, 'message' => '没有上传文件', 'debug' => $_FILES]);
+                echo json_encode([
+                    'success' => false, 
+                    'message' => '没有上传文件',
+                    'debug' => [
+                        'FILES' => $_FILES,
+                        'POST' => $_POST,
+                        'GET' => $_GET,
+                        'REQUEST_METHOD' => $_SERVER['REQUEST_METHOD'],
+                        'CONTENT_TYPE' => $_SERVER['CONTENT_TYPE'] ?? 'not set',
+                        'CONTENT_LENGTH' => $_SERVER['CONTENT_LENGTH'] ?? 'not set'
+                    ]
+                ]);
                 break;
             }
             

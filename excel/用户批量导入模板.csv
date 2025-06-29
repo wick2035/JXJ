@@ -1,0 +1,12 @@
+用户名,密码,用户类型,真实姓名,邮箱,手机号,学号,班级,专业
+student2024001,123456,student,张三,zhangsan@stu.edu.cn,13812345678,20240001,计算机科学与技术1班,计算机科学与技术
+student2024002,123456,student,李四,lisi@stu.edu.cn,13812345679,20240002,计算机科学与技术1班,计算机科学与技术
+student2024003,123456,student,王五,wangwu@stu.edu.cn,13812345680,20240003,计算机科学与技术2班,计算机科学与技术
+student2024004,123456,student,赵六,zhaoliu@stu.edu.cn,13812345681,20240004,软件工程1班,软件工程
+student2024005,123456,student,孙七,sunqi@stu.edu.cn,13812345682,20240005,软件工程1班,软件工程
+student2024006,123456,student,周八,zhouba@stu.edu.cn,13812345683,20240006,网络工程1班,网络工程
+student2024007,123456,student,吴九,wujiu@stu.edu.cn,13812345684,20240007,信息安全1班,信息安全
+student2024008,123456,student,郑十,zhengshi@stu.edu.cn,13812345685,20240008,数据科学1班,数据科学与大数据技术
+admin_teacher01,admin123,admin,王老师,wanglaoshi@edu.cn,13900000001,,,
+admin_teacher02,admin123,admin,李老师,lilaoshi@edu.cn,13900000002,,,
+admin_manager01,admin123,admin,张主任,zhangzhuren@edu.cn,13900000003,,, 

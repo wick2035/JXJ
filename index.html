@@ -196,9 +196,11 @@
             <div class="admin-tabs">
                 <button class="tab-btn active" onclick="switchTab('overview')">系统概览</button>
                 <button class="tab-btn" onclick="switchTab('announcements')">公告管理</button>
+                <button class="tab-btn" onclick="switchTab('batches')">批次管理</button>
                 <button class="tab-btn" onclick="switchTab('itemManagement')">奖项管理</button>
                 <button class="tab-btn" onclick="switchTab('categories')">类目管理</button>
                 <button class="tab-btn" onclick="switchTab('userManagement')">用户管理</button>
+                <button class="tab-btn" onclick="switchTab('ranking')">数据排名</button>
                 <button class="tab-btn" onclick="switchTab('materials')">材料审核</button>
             </div>
 
@@ -263,6 +265,61 @@
                         </div>
                         <div id="announcementHistory">
                             <!-- 公告历史将在这里显示 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 批次管理 -->
+            <div id="batchesTab" class="tab-content">
+                <div class="upload-container">
+                    <div class="card glass">
+                        <div class="card-title">
+                            <div class="card-icon">📅</div>
+                            添加批次
+                        </div>
+                        <form id="batchForm">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">批次名称</label>
+                                    <input type="text" id="batchName" class="form-input" placeholder="请输入批次名称" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">批次描述</label>
+                                    <input type="text" id="batchDescription" class="form-input" placeholder="请输入批次描述">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">开始日期</label>
+                                    <input type="date" id="batchStartDate" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">结束日期</label>
+                                    <input type="date" id="batchEndDate" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">状态</label>
+                                    <select id="batchStatus" class="form-select" required>
+                                        <option value="open">开放</option>
+                                        <option value="closed">关闭</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div style="text-align: center; margin-top: 20px;">
+                                <button type="submit" class="btn" style="padding: 12px 30px;">添加批次</button>
+                                <button type="button" class="btn-outline btn" onclick="clearBatchForm()" style="padding: 12px 30px;">清空表单</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="card glass" style="margin-top: 30px;">
+                        <div class="card-title">
+                            <div class="card-icon">📋</div>
+                            批次列表
+                        </div>
+                        <div id="batchesList">
+                            <!-- 批次列表将在这里显示 -->
                         </div>
                     </div>
                 </div>
@@ -404,11 +461,82 @@
 
                     <div class="card glass" style="margin-top: 30px;">
                         <div class="card-title">
+                            <div class="card-icon">📥</div>
+                            批量导入用户
+                        </div>
+                        <div style="margin-bottom: 20px; padding: 15px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px;">
+                            <div style="color: rgba(59, 130, 246, 0.8); font-size: 14px; margin-bottom: 10px;">
+                                <strong>使用说明：</strong>
+                            </div>
+                            <div style="color: rgba(255, 255, 255, 0.8); font-size: 13px; line-height: 1.5;">
+                                1. 请先下载模板文件，按照模板格式填写用户信息<br>
+                                2. 文件格式必须为CSV格式，编码为UTF-8<br>
+                                3. 用户名、密码、用户类型为必填项<br>
+                                4. 用户类型只能填写"student"或"admin"<br>
+                                5. 文件大小不能超过5MB
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 20px;">
+                            <button class="btn-outline btn" onclick="downloadUserTemplate()" style="padding: 12px 24px;">
+                                📄 下载模板
+                            </button>
+                            <div style="flex: 1;">
+                                <input type="file" id="userImportFile" accept=".csv" style="display: none;" onchange="handleUserImportFileSelect(event)">
+                                <button class="btn-outline btn" onclick="document.getElementById('userImportFile').click()" style="padding: 12px 24px;">
+                                    📁 选择文件
+                                </button>
+                            </div>
+                        </div>
+                        <div id="importFileInfo" style="display: none; margin-bottom: 15px; padding: 10px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 6px; color: rgba(34, 197, 94, 0.8); font-size: 13px;">
+                            已选择文件：<span id="importFileName"></span>
+                        </div>
+                        <div style="text-align: center;">
+                            <button id="importUsersBtn" class="btn" onclick="importUsers()" disabled style="padding: 12px 30px; pointer-events: auto !important;">
+                                📥 开始导入
+                            </button>
+                        </div>
+                        <div id="importProgress" style="display: none; margin-top: 20px;">
+                            <div style="color: rgba(255, 255, 255, 0.8); font-size: 14px; margin-bottom: 10px;">导入进度</div>
+                            <div style="background: rgba(255, 255, 255, 0.1); border-radius: 4px; height: 8px; overflow: hidden;">
+                                <div id="importProgressBar" style="background: linear-gradient(90deg, #3b82f6, #06d6a0); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                            </div>
+                            <div id="importProgressText" style="color: rgba(255, 255, 255, 0.7); font-size: 12px; margin-top: 5px;">准备中...</div>
+                        </div>
+                    </div>
+
+                    <div class="card glass" style="margin-top: 30px;">
+                        <div class="card-title">
                             <div class="card-icon">📋</div>
                             用户列表
                         </div>
                         <div id="usersList">
                             <!-- 用户列表将在这里显示 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 数据排名 -->
+            <div id="rankingTab" class="tab-content">
+                <div class="upload-container">
+                    <div class="card glass">
+                        <div class="card-title">
+                            <div class="card-icon">📊</div>
+                            批次排名查询
+                        </div>
+                        <div class="ranking-controls">
+                            <div class="form-group">
+                                <label class="form-label">选择批次</label>
+                                <select id="rankingBatchSelect" class="form-select" onchange="loadBatchRanking()">
+                                    <option value="">请选择批次</option>
+                                </select>
+                            </div>
+                            <button class="export-btn" onclick="exportRankingToExcel()" id="exportBtn" disabled>
+                                📥 导出Excel
+                            </button>
+                        </div>
+                        <div id="rankingTableContainer">
+                            <!-- 排名表格将在这里显示 -->
                         </div>
                     </div>
                 </div>
@@ -453,7 +581,7 @@
 
     <!-- 编辑用户弹窗 -->
     <div id="editUserModal" class="announcement-modal hidden">
-        <div class="announcement-content" style="max-width: 600px;">
+                        <div class="announcement-content" style="min-width: 600px; max-width: 800px;">
             <div class="announcement-header">
                 <h2 class="announcement-title">编辑用户</h2>
                 <button class="announcement-close" onclick="closeEditUserModal()">×</button>

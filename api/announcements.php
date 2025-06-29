@@ -104,7 +104,21 @@ function deleteAnnouncement($id) {
 
 // 处理请求
 try {
-    $action = $_GET['action'] ?? $_POST['action'] ?? '';
+    // 处理JSON请求体
+    $json_input = file_get_contents('php://input');
+    $json_data = [];
+    if (!empty($json_input)) {
+        $json_data = json_decode($json_input, true) ?? [];
+        error_log('Announcements JSON input: ' . $json_input);
+        error_log('Announcements JSON data: ' . print_r($json_data, true));
+    }
+    
+    $action = $_GET['action'] ?? $_POST['action'] ?? $json_data['action'] ?? '';
+    
+    error_log('Announcements API called with action: ' . $action);
+    error_log('GET data: ' . print_r($_GET, true));
+    error_log('POST data: ' . print_r($_POST, true));
+    error_log('JSON data: ' . print_r($json_data, true));
     
     switch ($action) {
         case 'list':
@@ -119,9 +133,11 @@ try {
             break;
             
         case 'create':
-            $title = $_POST['title'] ?? '';
-            $content = $_POST['content'] ?? '';
-            $type = $_POST['type'] ?? 'normal';
+            // 合并所有数据源
+            $all_data = array_merge($_POST, $json_data);
+            $title = $all_data['title'] ?? '';
+            $content = $all_data['content'] ?? '';
+            $type = $all_data['type'] ?? 'normal';
             
             if (empty($title) || empty($content)) {
                 echo json_encode(['success' => false, 'message' => '标题和内容不能为空']);
@@ -132,8 +148,11 @@ try {
             echo json_encode($result);
             break;
             
+        case 'setActive':
         case 'set_active':
-            $id = $_POST['id'] ?? 0;
+            // 合并所有数据源
+            $all_data = array_merge($_POST, $json_data);
+            $id = $all_data['id'] ?? 0;
             if (!$id) {
                 echo json_encode(['success' => false, 'message' => '公告ID不能为空']);
                 break;
@@ -144,7 +163,9 @@ try {
             break;
             
         case 'delete':
-            $id = $_POST['id'] ?? 0;
+            // 合并所有数据源
+            $all_data = array_merge($_POST, $json_data);
+            $id = $all_data['id'] ?? 0;
             if (!$id) {
                 echo json_encode(['success' => false, 'message' => '公告ID不能为空']);
                 break;
@@ -155,10 +176,11 @@ try {
             break;
             
         default:
-            echo json_encode(['success' => false, 'message' => '未知操作']);
+            echo json_encode(['success' => false, 'message' => '未知操作: ' . $action]);
             break;
     }
 } catch (Exception $e) {
+    error_log('Announcements API Exception: ' . $e->getMessage());
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
 ?> 

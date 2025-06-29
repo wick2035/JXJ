@@ -4,11 +4,19 @@
 // 数据库连接
 function getConnection() {
     try {
-        $dsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
+        if (!defined('DB_HOST') || !defined('DB_NAME') || !defined('DB_USER') || !defined('DB_PASS')) {
+            throw new Exception('数据库配置常量未定义');
+        }
+        
+        $port = defined('DB_PORT') ? DB_PORT : 3306;
+        $dsn = "mysql:host=" . DB_HOST . ";port=" . $port . ";dbname=" . DB_NAME . ";charset=utf8mb4";
         $pdo = new PDO($dsn, DB_USER, DB_PASS);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        
+        error_log('Database connection successful');
         return $pdo;
     } catch (PDOException $e) {
+        error_log('Database connection failed: ' . $e->getMessage());
         throw new Exception('数据库连接失败: ' . $e->getMessage());
     }
 }
@@ -31,10 +39,18 @@ function login($username, $password) {
     // 密码验证逻辑 - 完全依赖数据库
     $validPassword = false;
     
-    // 检查是否为测试用户且密码为明文存储（向后兼容）
-    if (($username === '123' || $username === '1234') && $user['password'] === $password) {
+    // 检查是否为默认测试用户的明文密码（为向后兼容）
+    // 对于用户123密码123，用户1234密码1234
+    if (($username === '123' && $password === '123') || 
+        ($username === '1234' && $password === '1234')) {
         $validPassword = true;
-        error_log("Plain text password login for: {$username}, type: {$user['type']}");
+        error_log("Default test user login: {$username}, type: {$user['type']}");
+        
+        // 如果是明文密码且验证成功，更新为加密密码
+        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+        $updateStmt = $pdo->prepare("UPDATE users SET password = ? WHERE username = ?");
+        $updateStmt->execute([$hashedPassword, $username]);
+        error_log("Updated password hash for user: {$username}");
     } 
     // 检查加密密码
     elseif (password_verify($password, $user['password'])) {
@@ -43,7 +59,7 @@ function login($username, $password) {
     }
     // 如果都不匹配，记录调试信息
     else {
-        error_log("Password mismatch for user: {$username}, provided: {$password}, stored: " . substr($user['password'], 0, 20) . "...");
+        error_log("Password mismatch for user: {$username}, provided: {$password}, stored hash length: " . strlen($user['password']));
     }
     
     if (!$validPassword) {

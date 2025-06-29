@@ -28,12 +28,28 @@ require_once 'auth-functions.php';
 
 // 处理请求
 try {
-    $action = $_GET['action'] ?? $_POST['action'] ?? '';
+    // 处理JSON请求体
+    $json_input = file_get_contents('php://input');
+    $json_data = [];
+    if (!empty($json_input)) {
+        $json_data = json_decode($json_input, true) ?? [];
+        error_log('Auth JSON input: ' . $json_input);
+        error_log('Auth JSON data: ' . print_r($json_data, true));
+    }
+    
+    $action = $_GET['action'] ?? $_POST['action'] ?? $json_data['action'] ?? '';
+    
+    error_log('Auth API called with action: ' . $action);
+    error_log('GET data: ' . print_r($_GET, true));
+    error_log('POST data: ' . print_r($_POST, true));
+    error_log('JSON data: ' . print_r($json_data, true));
     
     switch ($action) {
         case 'login':
-            $username = $_POST['username'] ?? '';
-            $password = $_POST['password'] ?? '';
+            // 合并所有数据源
+            $all_data = array_merge($_POST, $json_data);
+            $username = $all_data['username'] ?? '';
+            $password = $all_data['password'] ?? '';
             
             if (empty($username) || empty($password)) {
                 echo json_encode(['success' => false, 'message' => '用户名和密码不能为空']);
@@ -55,10 +71,11 @@ try {
             break;
             
         default:
-            echo json_encode(['success' => false, 'message' => '未知操作']);
+            echo json_encode(['success' => false, 'message' => '未知操作: ' . $action]);
             break;
     }
 } catch (Exception $e) {
+    error_log('Auth API Exception: ' . $e->getMessage());
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
 ?> 

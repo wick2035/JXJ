@@ -11,7 +11,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
 
+// 启用调试
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 session_start();
+
+error_log('Categories API called');
+error_log('Request method: ' . $_SERVER['REQUEST_METHOD']);
+error_log('GET params: ' . print_r($_GET, true));
+error_log('POST params: ' . print_r($_POST, true));
+
 require_once '../config.php';
 require_once 'auth-functions.php';
 
@@ -37,12 +47,23 @@ function getCategoriesWithItems() {
     
     // 获取每个类目的奖项和分数配置
     foreach ($categories as &$category) {
+        // 确保category有id
+        if (!isset($category['id'])) {
+            error_log('Warning: Category without ID found: ' . print_r($category, true));
+            continue;
+        }
+        
         $stmt = $pdo->prepare("SELECT * FROM items WHERE category_id = ? ORDER BY id");
         $stmt->execute([$category['id']]);
         $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // 获取每个奖项的分数配置
         foreach ($items as &$item) {
+            if (!isset($item['id'])) {
+                error_log('Warning: Item without ID found: ' . print_r($item, true));
+                continue;
+            }
+            
             $stmt = $pdo->prepare("SELECT level, grade, score FROM item_scores WHERE item_id = ?");
             $stmt->execute([$item['id']]);
             $scores = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -53,9 +74,11 @@ function getCategoriesWithItems() {
             }
         }
         
-        $category['items'] = $items;
+        // 确保items是一个数组，即使是空的
+        $category['items'] = $items ?: [];
     }
     
+    error_log('Categories with items: ' . print_r($categories, true));
     return ['success' => true, 'data' => $categories];
 }
 
@@ -183,6 +206,22 @@ function deleteItem($id) {
 try {
     $action = $_GET['action'] ?? $_POST['action'] ?? '';
     
+    // 处理JSON请求体
+    $requestData = [];
+    if (empty($action) || $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $inputData = file_get_contents('php://input');
+        if (!empty($inputData)) {
+            $jsonData = json_decode($inputData, true);
+            if ($jsonData && isset($jsonData['action'])) {
+                $action = $jsonData['action'];
+                $requestData = $jsonData;
+                error_log('JSON request data: ' . print_r($requestData, true));
+            }
+        }
+    }
+    
+    error_log('Processing action: ' . $action);
+    
     switch ($action) {
         case 'list':
             $result = getCategories();
@@ -195,9 +234,9 @@ try {
             break;
             
         case 'create':
-            $name = $_POST['name'] ?? '';
-            $score = $_POST['score'] ?? 0;
-            $description = $_POST['description'] ?? '';
+            $name = $requestData['name'] ?? $_POST['name'] ?? '';
+            $score = $requestData['score'] ?? $_POST['score'] ?? 0;
+            $description = $requestData['description'] ?? $_POST['description'] ?? '';
             
             if (empty($name)) {
                 echo json_encode(['success' => false, 'message' => '类目名称不能为空']);
@@ -209,10 +248,10 @@ try {
             break;
             
         case 'update':
-            $id = $_POST['id'] ?? 0;
-            $name = $_POST['name'] ?? '';
-            $score = $_POST['score'] ?? 0;
-            $description = $_POST['description'] ?? '';
+            $id = $requestData['id'] ?? $_POST['id'] ?? 0;
+            $name = $requestData['name'] ?? $_POST['name'] ?? '';
+            $score = $requestData['score'] ?? $_POST['score'] ?? 0;
+            $description = $requestData['description'] ?? $_POST['description'] ?? '';
             
             if (!$id || empty($name)) {
                 echo json_encode(['success' => false, 'message' => '参数不完整']);
@@ -224,7 +263,7 @@ try {
             break;
             
         case 'delete':
-            $id = $_POST['id'] ?? 0;
+            $id = $requestData['id'] ?? $_POST['id'] ?? 0;
             if (!$id) {
                 echo json_encode(['success' => false, 'message' => '类目ID不能为空']);
                 break;
@@ -235,9 +274,9 @@ try {
             break;
             
         case 'create_item':
-            $categoryId = $_POST['category_id'] ?? 0;
-            $name = $_POST['name'] ?? '';
-            $description = $_POST['description'] ?? '';
+            $categoryId = $requestData['category_id'] ?? $_POST['category_id'] ?? 0;
+            $name = $requestData['name'] ?? $_POST['name'] ?? '';
+            $description = $requestData['description'] ?? $_POST['description'] ?? '';
             
             if (!$categoryId || empty($name)) {
                 echo json_encode(['success' => false, 'message' => '参数不完整']);
@@ -249,10 +288,10 @@ try {
             break;
             
         case 'update_item_score':
-            $itemId = $_POST['item_id'] ?? 0;
-            $level = $_POST['level'] ?? '';
-            $grade = $_POST['grade'] ?? '';
-            $score = $_POST['score'] ?? 0;
+            $itemId = $requestData['item_id'] ?? $_POST['item_id'] ?? 0;
+            $level = $requestData['level'] ?? $_POST['level'] ?? '';
+            $grade = $requestData['grade'] ?? $_POST['grade'] ?? '';
+            $score = $requestData['score'] ?? $_POST['score'] ?? 0;
             
             if (!$itemId || empty($level) || empty($grade)) {
                 echo json_encode(['success' => false, 'message' => '参数不完整']);
@@ -264,7 +303,7 @@ try {
             break;
             
         case 'delete_item':
-            $id = $_POST['id'] ?? 0;
+            $id = $requestData['id'] ?? $_POST['id'] ?? 0;
             if (!$id) {
                 echo json_encode(['success' => false, 'message' => '奖项ID不能为空']);
                 break;
@@ -275,10 +314,12 @@ try {
             break;
             
         default:
-            echo json_encode(['success' => false, 'message' => '未知操作']);
+            error_log('Unknown action: ' . $action);
+            echo json_encode(['success' => false, 'message' => '未知操作: ' . $action]);
             break;
     }
 } catch (Exception $e) {
+    error_log('Categories API Exception: ' . $e->getMessage());
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
 ?> 

@@ -159,8 +159,9 @@ class DataManager {
                 credentials: 'same-origin'
             });
             const data = await response.json();
-            if (data.success) {
-                categories = data.categories || data.data || [];
+            if (data.success && data.categories) {
+                categories = data.categories;
+                console.log('Categories loaded:', categories);
                 return categories;
             }
             throw new Error(data.message || '加载类目失败');
@@ -248,7 +249,7 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
         }, 1000);
         
     } catch (error) {
-        alert(error.message || '登录失败！');
+        alert(error.message || '登录失败');
         btn.textContent = '登录系统';
         btn.style.opacity = '1';
         btn.disabled = false;
@@ -265,44 +266,111 @@ function hideAllPages() {
 function showStudentPage() {
     hideAllPages();
     document.getElementById('studentPage').classList.add('active');
-    renderBatchList();
-    renderMyApplications();
+    
+    // 确保所有数据都已加载
+    const loadData = async () => {
+        try {
+            await Promise.all([
+                DataManager.loadCategories(),
+                DataManager.loadBatches(),
+                DataManager.loadAnnouncements()
+            ]);
+            
+            // 数据加载完成后再渲染页面
+            renderBatchList();
+            renderMyApplications();
+            
+            // 显示公告
+            if (shouldShowAnnouncementOnLogin()) {
+                const activeAnnouncement = announcements.find(ann => ann.is_active);
+                if (activeAnnouncement) {
+                    setTimeout(() => showAnnouncementModal(), 500);
+                }
+            }
+            
+            console.log('Student page data loaded successfully');
+        } catch (error) {
+            console.error('Failed to load student page data:', error);
+            alert('加载学生页面数据失败，请刷新页面重试');
+        }
+    };
+    
+    loadData();
 }
 
 function showAdminPage() {
     hideAllPages();
     document.getElementById('adminPage').classList.add('active');
-    updateStats();
-    updateCategorySelect();
-    renderItemsList();
-    renderCategoryList();
-    renderStudentMaterials();
-    renderAnnouncementHistory();
-    loadUsersList();
+    
+    // 确保所有数据都已加载
+    const loadData = async () => {
+        try {
+            await Promise.all([
+                DataManager.loadCategories(),
+                DataManager.loadBatches(),
+                DataManager.loadAnnouncements()
+            ]);
+            
+            // 数据加载完成后再渲染页面
+            switchTab('overview');
+            updateStats();
+            renderAnnouncementHistory();
+            updateCategorySelect();
+            renderCategoryList();
+            renderItemsList();
+            renderStudentMaterials();
+            loadUsersList();
+            // 初始化排名功能
+            initRankingTab();
+            
+            console.log('Admin page data loaded successfully');
+        } catch (error) {
+            console.error('Failed to load admin page data:', error);
+            alert('加载管理页面数据失败，请刷新页面重试');
+        }
+    };
+    
+    loadData();
 }
 
 function showApplicationPage(batchId, applicationId = null) {
-    const batch = batches.find(b => b.id === batchId);
-    
-    if (!applicationId && batch.status === 'closed') {
-        alert('该批次已截止申报！');
-        return;
-    }
-    
     hideAllPages();
     document.getElementById('applicationPage').classList.add('active');
-    document.getElementById('currentBatchTitle').textContent = batch.name;
-    document.getElementById('currentBatchTitle').dataset.batchId = batchId;
     
-    if (applicationId) {
-        loadApplicationForEdit(applicationId);
-        document.getElementById('submitBtn').textContent = '更新申请';
-    } else {
-        currentApplication = null;
-        document.getElementById('submitBtn').textContent = '提交申请';
+    // 更新批次标题和ID
+    const batch = batches.find(b => b.id == batchId);
+    const titleElement = document.getElementById('currentBatchTitle');
+    if (batch && titleElement) {
+        titleElement.textContent = batch.name;
+        titleElement.dataset.batchId = batchId; // 设置dataset.batchId
     }
     
-    renderCategories(batchId);
+    // 设置当前申请ID（编辑模式）
+    currentApplication = applicationId ? { id: applicationId } : null;
+    
+    // 加载类目并渲染
+    const loadAndRender = async () => {
+        try {
+            // 确保类目数据已加载
+            if (!categories || categories.length === 0) {
+                await DataManager.loadCategories();
+            }
+            
+            // 渲染类目界面
+            renderCategories(batchId);
+            
+            // 如果是编辑模式，加载现有申请数据
+            if (applicationId) {
+                await loadApplicationForEdit(applicationId);
+            }
+            
+        } catch (error) {
+            console.error('Error loading application page:', error);
+            alert('加载页面失败' + error.message);
+        }
+    };
+    
+    loadAndRender();
 }
 
 async function logout() {
@@ -356,7 +424,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
 
-    // 用户管理相关事件监听器
+    // 用户管理相关事件监听
     const userTypeSelect = document.getElementById('userType');
     if (userTypeSelect) {
         userTypeSelect.addEventListener('change', function() {
@@ -420,7 +488,7 @@ async function renderBatchList() {
             
             batchEl.innerHTML = `
                 <div class="batch-title">${batch.name}</div>
-                <div class="batch-info">截止日期: ${batch.deadline}</div>
+                <div class="batch-info">截止日期: ${formatDate(batch.end_date)}</div>
                 <div>
                     <span class="batch-status ${statusClass}">${statusText}</span>
                 </div>
@@ -443,86 +511,183 @@ async function renderBatchList() {
 
 async function renderMyApplications() {
     const container = document.getElementById('myApplicationsList');
-    container.innerHTML = '';
+    container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 20px;">加载中..</div>';
     
     try {
-        const response = await ApiClient.get('api/applications.php?action=getMyApplications');
+        const response = await ApiClient.get('api/applications.php?action=get_user_applications');
         
-        if (response.success && response.applications.length > 0) {
+        if (response.success && response.applications && response.applications.length > 0) {
+            container.innerHTML = '';
             response.applications.forEach(application => {
-                const applicationEl = document.createElement('div');
-                applicationEl.className = 'application-item';
-                
                 const statusText = {
                     'pending': '待审核',
-                    'approved': '已通过',
+                    'approved': '已通过', 
                     'rejected': '已驳回'
                 };
                 
                 const statusClass = `status-${application.status}`;
+                const canEdit = application.status === 'rejected' || application.status === 'pending';
                 
-                applicationEl.innerHTML = `
-                    <div class="application-title">${application.batch_name}</div>
-                    <div class="application-info">
-                        提交时间: ${formatDate(application.submit_time)}
-                        ${application.review_comment ? '<br>审核意见: ' + application.review_comment : ''}
+                const applicationCard = document.createElement('div');
+                applicationCard.className = 'application-card';
+                applicationCard.innerHTML = `
+                    <div class="application-header">
+                        <div>
+                            <div style="color: white; font-weight: 600;">${application.batch_name}</div>
+                            <div style="color: rgba(255, 255, 255, 0.7); font-size: 12px;">
+                                提交时间: ${formatDate(application.submitted_at)}<br>
+                                总分: <span style="color: #22c55e; font-weight: bold;">${application.total_score || 0}分</span>
+                            </div>
+                            <span class="application-status ${statusClass}" style="margin-top: 10px; display: inline-block;">
+                                ${statusText[application.status]}
+                            </span>
+                        </div>
+                        <div class="action-buttons">
+                            <button class="btn btn-outline" onclick="viewApplication(${application.id})">查看详情</button>
+                            ${canEdit ? `<button class="btn" onclick="editApplication(${application.id})">编辑申请</button>` : ''}
+                        </div>
                     </div>
-                    <div class="action-buttons">
-                        <span class="application-status ${statusClass}">
-                            ${statusText[application.status]}
-                        </span>
-                        ${(application.status === 'pending' || application.status === 'rejected') ? 
-                            `<button class="btn-warning btn" onclick="showApplicationPage(${application.batch_id}, ${application.id})">修改申请</button>` : 
-                            ''
-                        }
-                        <button class="btn-outline btn" onclick="viewApplication(${application.id})">查看详情</button>
-                    </div>
+                    ${application.review_comment ? `
+                        <div style="background: rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 8px; margin-top: 15px;">
+                            <div style="color: white; font-size: 12px; font-weight: 500;">审核意见:</div>
+                            <div style="color: rgba(255, 255, 255, 0.8); font-size: 14px; margin-top: 5px;">${application.review_comment}</div>
+                        </div>
+                    ` : ''}
                 `;
                 
-                container.appendChild(applicationEl);
+                container.appendChild(applicationCard);
             });
         } else {
             container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 40px;">暂无申请记录</div>';
         }
         
     } catch (error) {
-        console.error('Error rendering applications:', error);
-        container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 40px;">加载申请失败</div>';
+        console.error('Error rendering my applications:', error);
+        container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 40px;">加载申请失败: ' + error.message + '</div>';
     }
 }
 
 async function loadApplicationForEdit(applicationId) {
     try {
-        const response = await ApiClient.get(`api/applications.php?action=getApplication&id=${applicationId}`);
-        if (response.success) {
-            currentApplication = response.application;
+        console.log('Loading application for edit:', applicationId);
+        const response = await ApiClient.get(`api/applications.php?action=get_detail&id=${applicationId}`);
+        
+        if (response.success && response.data) {
+            currentApplication = response.data;
+            
+            console.log('Loaded application data:', currentApplication);
+            
             if (currentApplication.status === 'approved') {
                 alert('已通过的申请不能修改！');
                 showStudentPage();
                 return;
             }
+            
+            // 预填材料数据到界面
+            await preloadApplicationData();
+            
+        } else {
+            throw new Error(response.message || '获取申请详情失败');
         }
     } catch (error) {
-        console.error('Error loading application:', error);
-        alert('加载申请失败！');
+        console.error('Error loading application for edit:', error);
+        alert('加载申请失败：' + error.message);
         showStudentPage();
     }
 }
 
+// 预加载申请数据到编辑界面
+async function preloadApplicationData() {
+    if (!currentApplication || !currentApplication.materials) {
+        console.log('No application data to preload');
+        return;
+    }
+    
+    console.log('Preloading application materials:', currentApplication.materials);
+    
+    // 等待类目数据加载完成
+    if (!categories || categories.length === 0) {
+        await DataManager.loadCategories();
+    }
+    
+    // 等待DOM渲染完成
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // 预填每个材料数据
+    currentApplication.materials.forEach((material, index) => {
+        const itemIndex = `edit_${material.id}_${index}`;
+        console.log('Preloading material:', material, 'with index:', itemIndex);
+        addItemToCategory(material.category_id, material, itemIndex);
+    });
+}
+
 async function viewApplication(applicationId) {
     try {
-        const response = await ApiClient.get(`api/applications.php?action=getApplication&id=${applicationId}`);
-        if (response.success) {
-            const application = response.application;
+        const response = await ApiClient.get(`api/applications.php?action=get_detail&id=${applicationId}`);
+        
+        if (response.success && response.data) {
+            const application = response.data;
             
-            let materialsInfo = '';
-            let totalScore = 0;
+            let materialsHtml = '';
             
-            if (application.materials) {
+            if (application.materials && application.materials.length > 0) {
+                const materialsByCategory = {};
                 application.materials.forEach(material => {
-                    materialsInfo += `\n【${material.category_name}】:\n`;
-                    materialsInfo += `  ${material.item_name} - ${levelNames[material.award_level]} ${gradeNames[material.award_grade]} (${material.score}分)\n`;
-                    totalScore += material.score;
+                    if (!materialsByCategory[material.category_name]) {
+                        materialsByCategory[material.category_name] = [];
+                    }
+                    materialsByCategory[material.category_name].push(material);
+                });
+                
+                Object.keys(materialsByCategory).forEach(categoryName => {
+                    const categoryItems = materialsByCategory[categoryName];
+                    const categoryScore = categoryItems.reduce((sum, item) => sum + parseFloat(item.score || 0), 0);
+                    
+                    let categoryItemsHtml = '';
+                    categoryItems.forEach((material, index) => {
+                        const filesHtml = material.files && material.files.length > 0 ? material.files.map(file => {
+                            const filePath = file.file_path.startsWith('uploads/') ? file.file_path : `uploads/${file.file_path}`;
+                            const fileIcon = getFileIcon(file.file_type || file.original_name);
+                            return `
+                                <div style="margin: 5px; padding: 10px; background: rgba(255,255,255,0.15); border-radius: 8px; display: inline-block; min-width: 120px; border: 1px solid rgba(255,255,255,0.1); transition: all 0.3s ease; cursor: pointer;" onclick="previewFile('${filePath}', '${file.file_type}', '${file.original_name}')" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+                                    <div style="color: white; font-size: 13px; margin-bottom: 4px; word-break: break-all;">
+                                        ${fileIcon} ${file.original_name}
+                                    </div>
+                                    <div style="color: rgba(255, 255, 255, 0.6); font-size: 11px;">${formatFileSize(file.file_size)}</div>
+                                </div>
+                            `;
+                        }).join('') : '<div style="color: rgba(255, 255, 255, 0.5); font-size: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">无附件</div>';
+                        
+                        const levelName = levelNames[material.award_level] || '未知级别';
+                        const gradeName = gradeNames[material.award_grade] || '未知等级';
+                        
+                        categoryItemsHtml += `
+                            <div style="background: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(8px);">
+                                <div style="color: #fbbf24; font-weight: 700; margin-bottom: 8px; font-size: 16px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">
+                                    ${index + 1}. ${material.item_name}
+                                </div>
+                                <div style="color: #ffffff; font-size: 14px; margin-bottom: 15px; background: rgba(255, 255, 255, 0.1); padding: 10px 15px; border-radius: 8px; font-weight: 600;">
+                                    ${levelName} ${gradeName} - 得分: <span style="color: #22c55e; font-weight: 700; font-size: 16px;">${material.score}分</span>
+                                </div>
+                                <div style="color: #ffffff; font-size: 14px; margin-bottom: 12px; font-weight: 600;">附件:</div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                    ${filesHtml}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    materialsHtml += `
+                        <div style="margin-bottom: 25px;">
+                            <h4 style="color: #ffffff; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 20px; font-weight: 700; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">
+                                <span>${categoryName}</span>
+                                <span style="color: #22c55e; font-size: 16px; background: rgba(34, 197, 94, 0.3); padding: 8px 16px; border-radius: 12px; font-weight: 700; border: 1px solid rgba(34, 197, 94, 0.4);">
+                                    ${categoryScore}分
+                                </span>
+                            </h4>
+                            ${categoryItemsHtml}
+                        </div>
+                    `;
                 });
             }
             
@@ -532,24 +697,63 @@ async function viewApplication(applicationId) {
                 'rejected': '已驳回'
             };
             
-            alert(`申请详情：
-批次：${application.batch_name}
-状态：${statusText[application.status]}
-提交时间：${formatDate(application.submit_time)}
-申报项目：${materialsInfo || '\n无'}
-预计总分：${totalScore}分
-${application.review_comment ? '\n审核意见：' + application.review_comment : ''}`);
+            // 创建模态框显示详情
+            const detailModal = document.createElement('div');
+            detailModal.className = 'announcement-modal';
+            detailModal.innerHTML = `
+                <div class="announcement-content application-detail-content" style="min-width: 900px; max-width: 1200px; width: 90vw; max-height: 90vh; overflow-y: auto; padding: 40px; background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 2px solid rgba(255, 255, 255, 0.25); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);">
+                    <div class="announcement-header" style="margin-bottom: 30px; border-bottom: 2px solid rgba(255, 255, 255, 0.2); padding-bottom: 20px;">
+                        <h2 class="announcement-title" style="color: #ffffff; font-size: 28px; font-weight: 700; text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);">申请详情</h2>
+                        <button class="announcement-close" onclick="this.closest('.announcement-modal').remove()" style="color: #ffffff; font-size: 32px; font-weight: bold;">×</button>
+                    </div>
+                    <div class="announcement-body">
+                        <div style="background: rgba(255, 255, 255, 0.2); padding: 25px; border-radius: 15px; margin-bottom: 30px; border: 1px solid rgba(255, 255, 255, 0.3); backdrop-filter: blur(10px);">
+                            <div style="color: #ffffff; margin-bottom: 15px; font-size: 16px; font-weight: 600;"><strong>批次:</strong> <span style="color: #fbbf24; font-weight: 700;">${application.batch_name}</span></div>
+                            <div style="color: #ffffff; margin-bottom: 15px; font-size: 16px; font-weight: 600;"><strong>状态:</strong> 
+                                <span style="color: ${application.status === 'pending' ? '#fbbf24' : application.status === 'approved' ? '#22c55e' : '#ef4444'}; font-weight: 700; padding: 4px 12px; background: rgba(255, 255, 255, 0.1); border-radius: 8px;">
+                                    ${statusText[application.status]}
+                                </span>
+                            </div>
+                            <div style="color: #ffffff; margin-bottom: 15px; font-size: 16px; font-weight: 600;"><strong>提交时间:</strong> <span style="color: #60a5fa;">${formatDate(application.submitted_at)}</span></div>
+                            <div style="color: #ffffff; font-size: 18px; font-weight: 600;"><strong>总分:</strong> <span style="color: #22c55e; font-weight: 700; font-size: 24px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">${application.total_score || 0}分</span></div>
+                        </div>
+                        ${materialsHtml || '<div style="color: rgba(255, 255, 255, 0.8); padding: 30px; text-align: center; font-size: 18px; background: rgba(255, 255, 255, 0.1); border-radius: 15px;">暂无申报材料</div>'}
+                        ${application.review_comment ? `
+                            <div style="background: rgba(255, 255, 255, 0.2); padding: 25px; border-radius: 15px; margin-top: 30px; border: 1px solid rgba(255, 255, 255, 0.3);">
+                                <div style="color: #ffffff; font-size: 18px; font-weight: 700; margin-bottom: 15px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">审核意见:</div>
+                                <div style="color: #ffffff; font-size: 16px; line-height: 1.6; background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 10px;">${application.review_comment}</div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(detailModal);
+        } else {
+            alert('获取申请详情失败：' + (response.message || '未知错误'));
         }
     } catch (error) {
         console.error('Error viewing application:', error);
-        alert('查看申请失败！');
+        alert('查看申请失败：' + error.message);
     }
 }
 
 // 工具函数
 function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleString('zh-CN');
+    if (!dateString || dateString === 'undefined' || dateString === 'null') {
+        return '未设置';
+    }
+    
+    try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) {
+            return '无效日期';
+        }
+        return date.toLocaleString('zh-CN');
+    } catch (error) {
+        console.error('Date formatting error:', error, 'for date:', dateString);
+        return '日期错误';
+    }
 }
 
 function formatFileSize(bytes) {
@@ -560,25 +764,62 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+function getFileIcon(fileType) {
+    if (fileType.includes('pdf')) return '📄';
+    if (fileType.includes('doc')) return '📝';
+    if (fileType.includes('image')) return '🖼️';
+    if (fileType.includes('excel') || fileType.includes('spreadsheet')) return '📊';
+    return '📎';
+}
+
 // 申请表单管理
 function renderCategories(batchId) {
     const container = document.getElementById('categoriesContainer');
     container.innerHTML = '';
     
+    // 确保类目数据已加载
+    if (!categories || categories.length === 0) {
+        console.log('Categories not loaded, attempting to load...');
+        DataManager.loadCategories().then(() => {
+            renderCategories(batchId);
+        }).catch(error => {
+            console.error('Failed to load categories:', error);
+            container.innerHTML = '<div class="error-message">无法加载奖学金类目，请刷新页面重试</div>';
+        });
+        return;
+    }
+    
     categories.forEach(category => {
+        // 修复：允许显示没有奖项的类目，但给出提示
+        if (!category.items || !Array.isArray(category.items)) {
+            category.items = [];
+        }
+        
+        if (category.items.length === 0) {
+            console.warn(`Category ${category.name} has no items`);
+            // 不再return，而是继续显示类目但添加提示
+        }
+        
         const categoryEl = document.createElement('div');
         categoryEl.className = 'category-section';
         
+        const hasItems = category.items && category.items.length > 0;
+        const noItemsWarning = hasItems ? '' : `
+            <div style="background: rgba(255, 193, 7, 0.2); border: 1px solid rgba(255, 193, 7, 0.5); border-radius: 8px; padding: 12px; margin-bottom: 15px; color: #ffc107;">
+                ⚠️ 该类目还没有预设的奖项，请联系管理员先添加奖项?            </div>
+        `;
+        
         categoryEl.innerHTML = `
             <div class="category-title">${category.name}</div>
-            <div class="category-score">总分权重: ${category.score}分</div>
+            <div class="category-score">总分权重: ${category.score} 分 </div>
+            ${noItemsWarning}
             
             <div id="itemsContainer${category.id}">
                 <!-- 已添加的奖项将在这里显示 -->
             </div>
             
-            <button class="btn-outline btn" onclick="addNewItem(${category.id})" style="width: 100%; margin-top: 15px;">
-                ➕ 添加${category.name}奖项
+            <button class="btn-outline btn" onclick="addNewItem(${category.id})" style="width: 100%; margin-top: 15px;" ${!hasItems ? 'disabled title="该类目没有可选奖项"' : ''}>
+                添加${category.name}奖项
             </button>
         `;
         
@@ -587,14 +828,50 @@ function renderCategories(batchId) {
     
     // 如果是编辑模式，加载已有数据
     if (currentApplication && currentApplication.materials) {
+        console.log('Loading existing materials for edit mode:', currentApplication.materials);
         currentApplication.materials.forEach((material, index) => {
-            addItemToCategory(material.category_id, material, index);
+            const itemIndex = `edit_${material.id}_${index}`;
+            console.log(`Adding material to category ${material.category_id} with index ${itemIndex}:`, material);
+            addItemToCategory(material.category_id, material, itemIndex);
         });
     }
 }
 
 function addNewItem(categoryId) {
-    const category = categories.find(c => c.id === categoryId);
+    // 确保categories数据已加载
+    if (!categories || categories.length === 0) {
+        console.error('Categories not loaded');
+        alert('类目数据未加载，请刷新页面重试');
+        return;
+    }
+    
+    console.log('Adding new item for category:', categoryId, 'type:', typeof categoryId);
+    console.log('Available categories:', categories);
+    console.log('Category IDs:', categories.map(c => ({ id: c.id, type: typeof c.id, name: c.name })));
+    
+    // 修复：确保categoryId类型匹配，统一转为数字进行比较
+    const numericCategoryId = parseInt(categoryId);
+    const category = categories.find(c => parseInt(c.id) === numericCategoryId);
+    if (!category) {
+        console.error('Category not found:', categoryId, 'numeric:', numericCategoryId);
+        console.error('Available category IDs:', categories.map(c => c.id));
+        alert('找不到指定的类目');
+        return;
+    }
+    
+    // 修复：如果items不存在或为空，初始化为空数组
+    if (!category.items || !Array.isArray(category.items)) {
+        console.warn('Category items not properly initialized, setting to empty array:', category);
+        category.items = [];
+    }
+    
+    // 如果没有奖项，提示用户但仍允许添加
+    if (category.items.length === 0) {
+        console.warn('Category has no items:', category);
+        alert('该类目还没有预设的奖项，请联系管理员先添加奖项到该类目');
+        return;
+    }
+    
     let itemOptions = '<option value="">请选择具体项目</option>';
     category.items.forEach(item => {
         itemOptions += `<option value="${item.id}">${item.name}</option>`;
@@ -606,111 +883,116 @@ function addNewItem(categoryId) {
 
 function addItemToCategory(categoryId, itemData = null, itemIndex, itemOptions = null) {
     const container = document.getElementById(`itemsContainer${categoryId}`);
-    const category = categories.find(c => c.id === categoryId);
+    // 修复：确保categoryId类型匹配
+    const numericCategoryId = parseInt(categoryId);
+    const category = categories.find(c => parseInt(c.id) === numericCategoryId);
+    
+    if (!container) {
+        console.error('Container not found for category:', categoryId);
+        return;
+    }
+    
+    if (!category) {
+        console.error('Category not found:', categoryId);
+        return;
+    }
     
     if (!itemOptions) {
         itemOptions = '<option value="">请选择具体项目</option>';
-        category.items.forEach(item => {
-            itemOptions += `<option value="${item.id}">${item.name}</option>`;
-        });
+        if (category.items && category.items.length > 0) {
+            category.items.forEach(item => {
+                const selected = itemData && parseInt(itemData.item_id) === parseInt(item.id) ? 'selected' : '';
+                itemOptions += `<option value="${item.id}" ${selected}>${item.name}</option>`;
+            });
+        }
     }
     
     // 级别和等级选项
     let levelOptions = '';
     awardLevels.forEach(level => {
-        levelOptions += `<option value="${level}">${levelNames[level]}</option>`;
+        const selected = itemData && itemData.award_level === level ? 'selected' : '';
+        levelOptions += `<option value="${level}" ${selected}>${levelNames[level]}</option>`;
     });
     
     let gradeOptions = '';
     awardGrades.forEach(grade => {
-        gradeOptions += `<option value="${grade}">${gradeNames[grade]}</option>`;
+        const selected = itemData && itemData.award_grade === grade ? 'selected' : '';
+        gradeOptions += `<option value="${grade}" ${selected}>${gradeNames[grade]}</option>`;
     });
     
     const itemEl = document.createElement('div');
     itemEl.className = 'item-entry';
     itemEl.id = `itemEntry${categoryId}_${itemIndex}`;
     
+    // 预填分数
+    const prefilledScore = itemData ? itemData.score : '';
+    
     itemEl.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <h4 style="color: white; margin: 0;">奖项 #${container.children.length + 1}</h4>
-            <button class="file-remove" onclick="removeItemEntry(${categoryId}, ${itemIndex})">删除奖项</button>
-        </div>
-        
-        <div class="form-group" style="margin-bottom: 15px;">
-            <label class="form-label">选择具体项目</label>
-            <select id="itemSelect${categoryId}_${itemIndex}" class="form-select" onchange="updateItemSelection(${categoryId}, ${itemIndex})">
-                ${itemOptions}
-            </select>
+            <button class="file-remove" onclick="removeItemEntry(${categoryId}, '${itemIndex}')">删除奖项</button>
         </div>
         
         <div class="form-row-double">
             <div class="form-group">
-                <label class="form-label">奖项级别</label>
-                <select id="levelSelect${categoryId}_${itemIndex}" class="form-select" onchange="updateScoreCalculation(${categoryId}, ${itemIndex})">
-                    ${levelOptions}
+                <label class="form-label">奖项名称</label>
+                <select class="form-select" id="itemSelect${categoryId}_${itemIndex}" onchange="updateItemSelection(${categoryId}, '${itemIndex}')">
+                    ${itemOptions}
                 </select>
             </div>
             <div class="form-group">
-                <label class="form-label">奖项等级</label>
-                <select id="gradeSelect${categoryId}_${itemIndex}" class="form-select" onchange="updateScoreCalculation(${categoryId}, ${itemIndex})">
-                    ${gradeOptions}
+                <label class="form-label">获奖级别</label>
+                <select class="form-select" id="levelSelect${categoryId}_${itemIndex}" onchange="updateScoreCalculation(${categoryId}, '${itemIndex}')">
+                    ${levelOptions}
                 </select>
             </div>
         </div>
         
-        <div id="selectedItemInfo${categoryId}_${itemIndex}" style="margin-bottom: 15px; display: none;">
-            <div style="background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 8px;">
-                <div style="color: white; font-weight: 500; margin-bottom: 8px;">已选择: <span id="itemInfoText${categoryId}_${itemIndex}" style="color: #fbbf24;"></span></div>
-                <div style="color: rgba(255, 255, 255, 0.8); font-size: 14px;">
-                    <span style="color: #22c55e; font-weight: bold; font-size: 16px;">得分: <span id="finalScore${categoryId}_${itemIndex}">0</span>分</span>
-                </div>
+        <div class="form-row-double">
+            <div class="form-group">
+                <label class="form-label">获奖等级</label>
+                <select class="form-select" id="gradeSelect${categoryId}_${itemIndex}" onchange="updateScoreCalculation(${categoryId}, '${itemIndex}')">
+                    ${gradeOptions}
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">得分</label>
+                <input type="number" class="form-input" id="scoreInput${categoryId}_${itemIndex}" value="${prefilledScore}" readonly>
             </div>
         </div>
         
-        <div class="file-upload" onclick="selectFilesForItem(${categoryId}, ${itemIndex})" id="fileUpload${categoryId}_${itemIndex}">
-            <div class="upload-icon">📁</div>
-            <div class="upload-text">点击上传证明材料<br>支持 JPG、PNG、PDF 格式</div>
-            <input type="file" id="fileInput${categoryId}_${itemIndex}" multiple accept="image/*,.pdf" style="display: none;" onchange="handleItemFileSelect(${categoryId}, ${itemIndex}, this)">
+        <div class="form-group">
+            <label class="form-label">上传证明文件</label>
+            <div class="file-upload" onclick="selectFilesForItem(${categoryId}, ${itemIndex})" id="fileUpload${categoryId}_${itemIndex}">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">点击上传文件<br>支持 JPG、PNG、PDF、DOC、DOCX 格式</div>
+                <input type="file" id="fileInput${categoryId}_${itemIndex}" style="display: none;" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif" onchange="handleItemFileSelect(${categoryId}, ${itemIndex}, this)">
+            </div>
+            <div class="file-list" id="fileList${categoryId}_${itemIndex}">
+                <!-- 文件列表将在这里显示 -->
+            </div>
         </div>
-        <div class="file-list" id="fileList${categoryId}_${itemIndex}"></div>
     `;
     
     container.appendChild(itemEl);
     
-    // 如果有数据，填充表单
-    if (itemData) {
-        const itemSelect = document.getElementById(`itemSelect${categoryId}_${itemIndex}`);
-        const levelSelect = document.getElementById(`levelSelect${categoryId}_${itemIndex}`);
-        const gradeSelect = document.getElementById(`gradeSelect${categoryId}_${itemIndex}`);
-        
-        if (itemData.item_id) {
-            itemSelect.value = itemData.item_id;
-        }
-        if (itemData.award_level) {
-            levelSelect.value = itemData.award_level;
-        }
-        if (itemData.award_grade) {
-            gradeSelect.value = itemData.award_grade;
-        }
-        
-        updateItemSelection(categoryId, itemIndex);
-        updateScoreCalculation(categoryId, itemIndex);
-        
-        // 加载已有文件
-        if (itemData.files) {
-            loadExistingFiles(categoryId, itemIndex, itemData.files);
-        }
-    } else {
-        // 设置默认值
-        document.getElementById(`levelSelect${categoryId}_${itemIndex}`).value = 'ungraded';
-        document.getElementById(`gradeSelect${categoryId}_${itemIndex}`).value = 'none';
+    // 如果有预填数据，加载现有文件
+    if (itemData && itemData.files) {
+        loadExistingFiles(categoryId, itemIndex, itemData.files);
     }
+    
+    // 触发分数计算
+    if (itemData) {
+        setTimeout(() => updateScoreCalculation(categoryId, itemIndex), 100);
+    }
+    
+    updateItemNumbers(categoryId);
 }
 
 function removeItemEntry(categoryId, itemIndex) {
-    const element = document.getElementById(`itemEntry${categoryId}_${itemIndex}`);
-    if (element) {
-        element.remove();
+    const itemEntry = document.getElementById(`itemEntry${categoryId}_${itemIndex}`);
+    if (itemEntry) {
+        itemEntry.remove();
         updateItemNumbers(categoryId);
     }
 }
@@ -726,26 +1008,25 @@ function updateItemNumbers(categoryId) {
 }
 
 function updateItemSelection(categoryId, itemIndex) {
-    const select = document.getElementById(`itemSelect${categoryId}_${itemIndex}`);
-    const selectedItemInfo = document.getElementById(`selectedItemInfo${categoryId}_${itemIndex}`);
-    const itemInfoText = document.getElementById(`itemInfoText${categoryId}_${itemIndex}`);
+    const itemSelect = document.getElementById(`itemSelect${categoryId}_${itemIndex}`);
     const fileUpload = document.getElementById(`fileUpload${categoryId}_${itemIndex}`);
+    const selectedItemId = itemSelect.value;
     
-    if (select.value) {
-        const category = categories.find(c => c.id === categoryId);
-        const selectedItem = category.items.find(item => item.id == select.value);
-        
-        selectedItemInfo.style.display = 'block';
-        itemInfoText.textContent = selectedItem.name;
-        
+    if (selectedItemId) {
         // 启用文件上传
         fileUpload.classList.add('enabled');
         
-        // 更新分数计算
+        // 触发分数重新计算
         updateScoreCalculation(categoryId, itemIndex);
     } else {
-        selectedItemInfo.style.display = 'none';
+        // 禁用文件上传
         fileUpload.classList.remove('enabled');
+        
+        // 清空分数
+        const scoreInput = document.getElementById(`scoreInput${categoryId}_${itemIndex}`);
+        if (scoreInput) {
+            scoreInput.value = '';
+        }
     }
 }
 
@@ -753,24 +1034,88 @@ function updateScoreCalculation(categoryId, itemIndex) {
     const itemSelect = document.getElementById(`itemSelect${categoryId}_${itemIndex}`);
     const levelSelect = document.getElementById(`levelSelect${categoryId}_${itemIndex}`);
     const gradeSelect = document.getElementById(`gradeSelect${categoryId}_${itemIndex}`);
+    const scoreInput = document.getElementById(`scoreInput${categoryId}_${itemIndex}`);
     
-    if (!itemSelect.value) return;
+    if (!itemSelect || !levelSelect || !gradeSelect || !scoreInput) {
+        console.error('Score calculation elements not found for:', categoryId, itemIndex);
+        return;
+    }
     
-    const category = categories.find(c => c.id === categoryId);
-    const selectedItem = category.items.find(item => item.id == itemSelect.value);
+    const selectedItemId = itemSelect.value;
     const selectedLevel = levelSelect.value;
     const selectedGrade = gradeSelect.value;
     
-    if (selectedItem && selectedLevel && selectedGrade) {
-        const scoreKey = `${selectedLevel}_${selectedGrade}`;
-        const finalScore = selectedItem.scores[scoreKey] || 0;
+    if (!selectedItemId || !selectedLevel || !selectedGrade) {
+        scoreInput.value = '';
+        return;
+    }
+    
+    // 查找对应的分数配置
+    try {
+        // 首先从categories中找到对应的item
+        const numericCategoryId = parseInt(categoryId);
+        const category = categories.find(c => parseInt(c.id) === numericCategoryId);
         
-        // 更新显示
-        document.getElementById(`finalScore${categoryId}_${itemIndex}`).textContent = finalScore;
+        if (!category || !category.items) {
+            console.error('Category or items not found:', categoryId);
+            scoreInput.value = '0';
+            return;
+        }
+        
+        const item = category.items.find(i => parseInt(i.id) === parseInt(selectedItemId));
+        if (!item) {
+            console.error('Item not found:', selectedItemId);
+            scoreInput.value = '0';
+            return;
+        }
+        
+        // 查找分数配置
+        let score = 0;
+        const scoreKey = `${selectedLevel}_${selectedGrade}`;
+        
+        console.log('updateScoreCalculation 调试:', {
+            categoryId: categoryId,
+            itemIndex: itemIndex,
+            selectedItemId: selectedItemId,
+            selectedLevel: selectedLevel,
+            selectedGrade: selectedGrade,
+            scoreKey: scoreKey,
+            item: item,
+            itemScores: item ? item.scores : null
+        });
+        
+        if (item.scores) {
+            // 优先使用对象格式 (从后端API返回的格式)
+            if (item.scores[scoreKey]) {
+                score = parseInt(item.scores[scoreKey]) || 0;
+                console.log(`使用对象格式分数: ${scoreKey} = ${score}`);
+            }
+            // 备用：检查数组格式
+            else if (Array.isArray(item.scores)) {
+                const scoreConfig = item.scores.find(s => 
+                    s.level === selectedLevel && s.grade === selectedGrade
+                );
+                if (scoreConfig) {
+                    score = parseInt(scoreConfig.score) || 0;
+                    console.log(`使用数组格式分数: ${score}`);
+                }
+            } else {
+                console.log('scores格式不匹配，可用键:', Object.keys(item.scores));
+            }
+        } else {
+            console.log('item.scores不存在');
+        }
+        
+        console.log(`最终分数: ${score}`);
+        scoreInput.value = score;
+        
+    } catch (error) {
+        console.error('Error calculating score:', error);
+        scoreInput.value = '0';
     }
 }
 
-// 文件上传管理
+// 文件上传管理 - 按照成功样例重写
 function selectFilesForItem(categoryId, itemIndex) {
     const select = document.getElementById(`itemSelect${categoryId}_${itemIndex}`);
     if (!select.value) {
@@ -793,53 +1138,79 @@ async function handleItemFileSelect(categoryId, itemIndex, input) {
     if (files.length === 0) return;
     
     // 显示上传进度
-    const uploadStatus = document.createElement('div');
-    uploadStatus.style.cssText = 'color: white; font-size: 12px; margin-top: 10px;';
-    uploadStatus.textContent = '正在上传文件...';
-    const uploadContainer = document.getElementById(`fileUpload${categoryId}_${itemIndex}`);
-    if (uploadContainer) {
-        uploadContainer.appendChild(uploadStatus);
-    } else {
-        console.error('Upload container not found:', `fileUpload${categoryId}_${itemIndex}`);
+    const fileUpload = document.getElementById(`fileUpload${categoryId}_${itemIndex}`);
+    if (!fileUpload) {
+        console.error('File upload element not found:', `fileUpload${categoryId}_${itemIndex}`);
+        alert('无法找到文件上传区域，请刷新页面重试');
+        return;
     }
     
+    const originalContent = fileUpload.innerHTML;
+    fileUpload.innerHTML = '<div class="upload-progress">上传中... </div>';
+    
     try {
-        // 验证文件
-        for (const file of files) {
-            if (file.size > 50 * 1024 * 1024) { // 50MB限制
-                throw new Error(`文件 ${file.name} 超过50MB大小限制`);
-            }
-            if (!file.type.match(/^(image\/(jpeg|png|gif)|application\/(pdf|msword)|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/)) {
-                throw new Error(`文件 ${file.name} 类型不支持`);
-            }
-        }
-        
+        // 上传所有文件
         const uploadPromises = files.map(file => uploadFile(file));
         const uploadedFiles = await Promise.all(uploadPromises);
         
-        // 保存文件信息到临时存储
+        console.log('Upload results:', uploadedFiles);
+        
+        // 初始化tempFiles
         if (!window.tempFiles) window.tempFiles = {};
         const key = `${categoryId}_${itemIndex}`;
         if (!window.tempFiles[key]) window.tempFiles[key] = [];
-        window.tempFiles[key].push(...uploadedFiles);
         
+        // 添加上传成功的文件到临时存储
+        uploadedFiles.forEach(fileData => {
+            window.tempFiles[key].push({
+                name: fileData.name,
+                size: fileData.size,
+                type: fileData.type,
+                uploadTime: fileData.uploadTime,
+                url: fileData.url,
+                path: fileData.path,
+                // 添加额外的属性以便提交时使用
+                original_name: fileData.name,
+                file_name: fileData.path,
+                file_path: fileData.path,
+                file_size: fileData.size,
+                file_type: fileData.type
+            });
+        });
+        
+        // 更新文件列表显示
         renderItemFileList(categoryId, itemIndex, window.tempFiles[key]);
-        uploadStatus.remove();
+        
+        // 恢复上传区域
+        fileUpload.innerHTML = originalContent;
         input.value = ''; // 清空文件选择
         
     } catch (error) {
         console.error('File upload error:', error);
-        alert('文件上传失败：' + error.message);
-        if (uploadStatus && uploadStatus.parentNode) {
-            uploadStatus.remove();
-        }
+        alert('文件上传失败: ' + error.message);
+        fileUpload.innerHTML = originalContent;
         input.value = ''; // 清空文件选择
     }
 }
 
 async function uploadFile(file) {
     if (!file) {
-        throw new Error('无效的文件对象');
+        throw new Error('无效的文件');
+    }
+    
+    // 检查文件大小 (10MB限制)
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+        throw new Error(`文件 ${file.name} 大小超过10MB限制`);
+    }
+    
+    // 检查文件类型
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.pdf', '.doc', '.docx'];
+    const fileExt = '.' + file.name.split('.').pop().toLowerCase();
+    
+    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExt)) {
+        throw new Error(`文件 ${file.name} 类型不支持，请上传 JPG、PNG、GIF、PDF、DOC、DOCX 格式的文件`);
     }
     
     const formData = new FormData();
@@ -855,21 +1226,28 @@ async function uploadFile(file) {
             credentials: 'same-origin'
         });
         
+        console.log('Upload response status:', response.status, response.statusText);
+        
         if (!response.ok) {
-            throw new Error(`HTTP错误: ${response.status} ${response.statusText}`);
+            const errorText = await response.text();
+            console.error('Upload response error:', errorText);
+            throw new Error(`HTTP错误 ${response.status}: ${response.statusText}`);
         }
         
         const responseText = await response.text();
+        console.log('Upload response text:', responseText);
+        
         let result;
         
         try {
             result = JSON.parse(responseText);
         } catch (parseError) {
             console.error('JSON解析错误:', responseText);
-            throw new Error('服务器返回非JSON格式响应');
+            throw new Error('服务器返回非JSON格式响应：' + responseText.substring(0, 100));
         }
         
         if (!result.success) {
+            console.error('Upload failed with result:', result);
             throw new Error(result.message || '上传失败');
         }
         
@@ -904,17 +1282,26 @@ async function uploadFile(file) {
 function loadExistingFiles(categoryId, itemIndex, files) {
     if (!window.tempFiles) window.tempFiles = {};
     const key = `${categoryId}_${itemIndex}`;
+    
+    // 确保files是数组
+    if (!Array.isArray(files)) {
+        console.error('Files is not an array:', files);
+        return;
+    }
+    
     window.tempFiles[key] = files.map(file => ({
-        name: file.file_name,
-        size: file.file_size,
-        type: file.file_type,
-        uploadTime: formatDate(file.upload_time),
-        url: 'uploads/' + file.file_path,
-        path: file.file_path,
+        name: file.original_name || file.file_name || file.name,
+        size: file.file_size || file.size,
+        type: file.file_type || file.type,
+        uploadTime: file.upload_time ? formatDate(file.upload_time) : '',
+        url: file.file_path ? (file.file_path.startsWith('uploads/') ? file.file_path : 'uploads/' + file.file_path) : '',
+        path: file.file_path || file.path,
         id: file.id
     }));
+    
+    console.log(`Loading existing files for ${key}:`, window.tempFiles[key]);
     renderItemFileList(categoryId, itemIndex, window.tempFiles[key]);
-}
+}   
 
 function renderItemFileList(categoryId, itemIndex, files) {
     const container = document.getElementById(`fileList${categoryId}_${itemIndex}`);
@@ -1016,7 +1403,19 @@ function previewFile(fileUrl, fileType, fileName) {
 
 // 提交申请
 async function submitApplication() {
-    const batchId = parseInt(document.getElementById('currentBatchTitle').dataset.batchId);
+    const titleElement = document.getElementById('currentBatchTitle');
+    const batchId = parseInt(titleElement ? titleElement.dataset.batchId : 0);
+    
+    console.log('提交申请 - 调试信息:', {
+        titleElement: titleElement,
+        datasetBatchId: titleElement ? titleElement.dataset.batchId : 'null',
+        batchId: batchId
+    });
+    
+    if (!batchId || batchId === 0) {
+        alert('无法获取批次ID，请刷新页面重试');
+        return;
+    }
     
     // 收集所有申请数据
     const applicationData = [];
@@ -1040,8 +1439,20 @@ async function submitApplication() {
                     const scoreKey = `${levelSelect.value}_${gradeSelect.value}`;
                     let score = 0;
                     
-                    if (selectedItem && selectedItem.scores && selectedItem.scores[scoreKey]) {
-                        score = parseInt(selectedItem.scores[scoreKey]) || 0;
+                    if (selectedItem && selectedItem.scores) {
+                        // 检查scores是否为对象格式 (从后端API返回的格式)
+                        if (selectedItem.scores[scoreKey]) {
+                            score = parseInt(selectedItem.scores[scoreKey]) || 0;
+                        }
+                        // 检查scores是否为数组格式 (备用格式)
+                        else if (Array.isArray(selectedItem.scores)) {
+                            const scoreConfig = selectedItem.scores.find(s => 
+                                s.level === levelSelect.value && s.grade === gradeSelect.value
+                            );
+                            if (scoreConfig) {
+                                score = parseInt(scoreConfig.score) || 0;
+                            }
+                        }
                     }
                     
                     console.log('计算分数:', {
@@ -1051,6 +1462,7 @@ async function submitApplication() {
                         grade: gradeSelect.value,
                         scoreKey: scoreKey,
                         selectedItem: selectedItem,
+                        itemScores: selectedItem ? selectedItem.scores : null,
                         score: score
                     });
                     
@@ -1078,13 +1490,13 @@ async function submitApplication() {
     });
     
     if (applicationData.length === 0) {
-        alert('请至少完成一个奖项的申报（选择项目并上传材料）！');
+        alert('请至少完成一个奖项的申报（选择项目并上传材料）');
         return;
     }
     
     const btn = document.getElementById('submitBtn');
     btn.disabled = true;
-    btn.textContent = '提交中...';
+    btn.textContent = '提交...';
     
     try {
         const apiData = {
@@ -1104,7 +1516,7 @@ async function submitApplication() {
         console.log('申请提交响应:', response);
         
         if (response.success) {
-            alert(currentApplication ? '申请更新成功！' : '申请提交成功！');
+            alert(currentApplication ? '申请更新成功' : '申请提交成功');
             window.tempFiles = {};
             currentApplication = null;
             showStudentPage();
@@ -1176,7 +1588,7 @@ async function publishAnnouncement() {
     const type = document.getElementById('announcementType').value;
     
     if (!title || !content) {
-        alert('请填写完整的公告信息！');
+        alert('请填写完整的公告信息');
         return;
     }
     
@@ -1192,7 +1604,7 @@ async function publishAnnouncement() {
             clearAnnouncementForm();
             await DataManager.loadAnnouncements();
             renderAnnouncementHistory();
-            alert('公告发布成功！');
+            alert('公告发布成功');
         } else {
             throw new Error(response.message || '发布失败');
         }
@@ -1280,7 +1692,7 @@ async function setActiveAnnouncement(id) {
         if (response.success) {
             await DataManager.loadAnnouncements();
             renderAnnouncementHistory();
-            alert('已设置为当前公告！');
+            alert('已设置为当前公告');
         } else {
             throw new Error(response.message || '设置失败');
         }
@@ -1319,36 +1731,83 @@ async function deleteAnnouncement(id) {
     }
 }
 
-// 管理员功能
+// 管理员功能切换
 function switchTab(tabName) {
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    // 隐藏所有标签内容
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
     
-    event.target.classList.add('active');
-    document.getElementById(tabName + 'Tab').classList.add('active');
+    // 移除所有标签按钮的活跃状态
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
     
-    if (tabName === 'materials') {
-        renderStudentMaterials();
-    } else if (tabName === 'itemManagement') {
-        renderItemsList();
-    } else if (tabName === 'announcements') {
-        renderAnnouncementHistory();
-    } else if (tabName === 'overview') {
-        updateStats();
-    } else if (tabName === 'userManagement') {
-        loadUsersList();
+    // 显示选中的标签内容
+    const targetTab = document.getElementById(tabName + 'Tab');
+    if (targetTab) {
+        targetTab.classList.add('active');
+    }
+    
+    // 激活对应的标签按钮
+    const activeBtn = document.querySelector(`.tab-btn[onclick="switchTab('${tabName}')"]`);
+    if (activeBtn) {
+        activeBtn.classList.add('active');
+    }
+    
+    // 根据标签名加载对应数据
+    switch (tabName) {
+        case 'overview':
+            updateStats();
+            break;
+        case 'announcements':
+            renderAnnouncementHistory();
+            break;
+        case 'batches':
+            loadBatchesList();
+            break;
+        case 'categories':
+            renderCategoryList();
+            updateCategorySelect();
+            break;
+        case 'itemManagement':
+            renderItemsList();
+            updateCategorySelect();
+            break;
+        case 'userManagement':
+            loadUsersList();
+            break;
+        case 'ranking':
+            // 确保批次数据已加载，然后初始化排名界面
+            (async () => {
+                try {
+                    if (!batches || batches.length === 0) {
+                        await DataManager.loadBatches();
+                    }
+                    await initRankingTab();
+                } catch (error) {
+                    console.error('Failed to initialize ranking tab:', error);
+                }
+            })();
+            break;
+        case 'materials':
+            renderStudentMaterials();
+            break;
     }
 }
 
 async function updateStats() {
     try {
-        const response = await ApiClient.get('api/applications.php?action=getStats');
+        const response = await ApiClient.get('api/applications.php?action=stats');
         if (response.success) {
-            document.getElementById('totalApplications').textContent = response.stats.total_applications || 0;
-            document.getElementById('totalCategories').textContent = categories.length;
+            document.getElementById('totalApplications').textContent = response.data.total_applications || 0;
+            document.getElementById('totalCategories').textContent = response.data.total_categories || 0;
         }
     } catch (error) {
         console.error('Error updating stats:', error);
+        // 设置默认值
+        document.getElementById('totalApplications').textContent = '0';
+        document.getElementById('totalCategories').textContent = categories.length || 0;
     }
 }
 
@@ -1372,7 +1831,7 @@ async function addCategory() {
     
     try {
         const response = await ApiClient.post('api/categories.php', {
-            action: 'createCategory',
+            action: 'create',
             name: name,
             score: score
         });
@@ -1385,7 +1844,7 @@ async function addCategory() {
             updateCategorySelect();
             renderCategoryList();
             updateStats();
-            alert('类目添加成功！');
+            alert('类目添加成功');
         } else {
             throw new Error(response.message || '添加失败');
         }
@@ -1400,7 +1859,7 @@ async function removeCategory(id) {
     
     try {
         const response = await ApiClient.post('api/categories.php', {
-            action: 'deleteCategory',
+            action: 'delete',
             id: id
         });
         
@@ -1409,7 +1868,7 @@ async function removeCategory(id) {
             updateCategorySelect();
             renderCategoryList();
             updateStats();
-            alert('类目删除成功！');
+            alert('类目删除成功');
         } else {
             throw new Error(response.message || '删除失败');
         }
@@ -1449,7 +1908,7 @@ async function addNewItemToCategory() {
     
     try {
         const response = await ApiClient.post('api/categories.php', {
-            action: 'createItem',
+            action: 'create_item',
             category_id: categoryId,
             name: itemName
         });
@@ -1460,7 +1919,7 @@ async function addNewItemToCategory() {
             
             await DataManager.loadCategories();
             renderItemsList();
-            alert('奖项添加成功！请设置各级别等级的分数。');
+            alert('奖项添加成功！请设置各级别等级的分数');
         } else {
             throw new Error(response.message || '添加失败');
         }
@@ -1475,14 +1934,14 @@ async function removeItemFromCategory(categoryId, itemId) {
     
     try {
         const response = await ApiClient.post('api/categories.php', {
-            action: 'deleteItem',
+            action: 'delete_item',
             id: itemId
         });
         
         if (response.success) {
             await DataManager.loadCategories();
             renderItemsList();
-            alert('奖项删除成功！');
+            alert('奖项删除成功');
         } else {
             throw new Error(response.message || '删除失败');
         }
@@ -1495,7 +1954,7 @@ async function removeItemFromCategory(categoryId, itemId) {
 async function updateItemScore(categoryId, itemId, level, grade, score) {
     try {
         await ApiClient.post('api/categories.php', {
-            action: 'updateScore',
+            action: 'update_item_score',
             item_id: itemId,
             level: level,
             grade: grade,
@@ -1568,8 +2027,7 @@ function renderItemsList() {
         categorySection.innerHTML = `
             <h3 style="color: white; margin-bottom: 15px; display: flex; align-items: center;">
                 <span style="background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); padding: 8px 12px; border-radius: 8px; font-size: 14px; margin-right: 15px;">${category.name}</span>
-                共 ${category.items.length} 个奖项
-            </h3>
+                ${category.items.length} 个奖项            </h3>
             ${itemsHtml}
         `;
         
@@ -1580,74 +2038,16 @@ function renderItemsList() {
 // 材料审核
 async function renderStudentMaterials() {
     const container = document.getElementById('studentMaterials');
-    container.innerHTML = '';
+    container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 20px;">加载中... </div>';
     
     try {
-        const response = await ApiClient.get('api/applications.php?action=getAllApplications');
+        const response = await ApiClient.get('api/applications.php?action=get_all');
         
-        if (response.success && response.applications.length > 0) {
-            response.applications.forEach(application => {
+        if (response.success && response.data && response.data.length > 0) {
+            container.innerHTML = '';
+            response.data.forEach(application => {
                 const studentCard = document.createElement('div');
                 studentCard.className = 'student-card';
-                
-                let materialsHtml = '';
-                let totalScore = 0;
-                
-                if (application.materials && application.materials.length > 0) {
-                    const materialsByCategory = {};
-                    application.materials.forEach(material => {
-                        if (!materialsByCategory[material.category_name]) {
-                            materialsByCategory[material.category_name] = [];
-                        }
-                        materialsByCategory[material.category_name].push(material);
-                        totalScore += material.score;
-                    });
-                    
-                    Object.keys(materialsByCategory).forEach(categoryName => {
-                        const categoryItems = materialsByCategory[categoryName];
-                        const categoryScore = categoryItems.reduce((sum, item) => sum + item.score, 0);
-                        
-                        let categoryItemsHtml = '';
-                        categoryItems.forEach((material, index) => {
-                            const filesHtml = material.files ? material.files.map(file => `
-                                <div class="material-item" style="margin: 5px;">
-                                    <div class="material-preview" onclick="previewFile('uploads/${file.file_path}', '${file.file_type}', '${file.file_name}')" style="cursor: pointer;">📄</div>
-                                    <div style="color: white; font-size: 12px; text-align: center; margin-top: 5px;">${file.file_name}</div>
-                                    <div style="color: rgba(255, 255, 255, 0.5); font-size: 10px; text-align: center;">${formatDate(file.upload_time)}</div>
-                                </div>
-                            `).join('') : '';
-                            
-                            const levelName = levelNames[material.award_level] || '未知级别';
-                            const gradeName = gradeNames[material.award_grade] || '未知等级';
-                            
-                            categoryItemsHtml += `
-                                <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                                    <div style="color: #fbbf24; font-weight: 500; margin-bottom: 5px;">
-                                        ${index + 1}. ${material.item_name}
-                                    </div>
-                                    <div style="color: rgba(255, 255, 255, 0.8); font-size: 13px; margin-bottom: 10px;">
-                                        ${levelName} ${gradeName} - 得分: <span style="color: #22c55e; font-weight: bold;">${material.score}分</span>
-                                    </div>
-                                    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-                                        ${filesHtml}
-                                    </div>
-                                </div>
-                            `;
-                        });
-                        
-                        materialsHtml += `
-                            <div style="margin-bottom: 25px;">
-                                <h4 style="color: white; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
-                                    <span>${categoryName}</span>
-                                    <span style="color: #22c55e; font-size: 14px; background: rgba(34, 197, 94, 0.2); padding: 4px 8px; border-radius: 6px;">
-                                        ${categoryScore}分
-                                    </span>
-                                </h4>
-                                ${categoryItemsHtml}
-                            </div>
-                        `;
-                    });
-                }
                 
                 const statusText = {
                     'pending': '待审核',
@@ -1658,22 +2058,23 @@ async function renderStudentMaterials() {
                 const statusClass = `status-${application.status}`;
                 
                 studentCard.innerHTML = `
-                    <div class="student-header">
-                        <div>
-                            <div style="color: white; font-weight: 600;">学生用户 (ID: ${application.user_id})</div>
-                            <div style="color: rgba(255, 255, 255, 0.7); font-size: 12px;">
-                                批次: ${application.batch_name}<br>
-                                提交时间: ${formatDate(application.submit_time)}<br>
-                                总分: <span style="color: #22c55e; font-weight: bold;">${totalScore}分</span>
+                    <div class="student-header" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 20px;">
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="color: white; font-weight: 600; font-size: 16px; margin-bottom: 8px;">${application.user_name || '未知用户'}</div>
+                            <div style="color: rgba(255, 255, 255, 0.8); font-size: 13px; line-height: 1.5; margin-bottom: 12px;">
+                                <div style="margin-bottom: 4px;"><strong>批次:</strong> ${application.batch_name || '未知批次'}</div>
+                                <div style="margin-bottom: 4px;"><strong>提交时间:</strong> ${formatDate(application.submitted_at)}</div>
+                                <div style="margin-bottom: 4px;"><strong>材料数量:</strong> ${application.material_count || 0} 个</div>
+                                <div><strong>总分:</strong> <span style="color: #22c55e; font-weight: bold; font-size: 14px;">${application.total_score || 0} 分</span></div>
                             </div>
-                            <span class="application-status ${statusClass}" style="margin-top: 10px; display: inline-block;">
+                            <span class="application-status ${statusClass}" style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;">
                                 ${statusText[application.status]}
                             </span>
                         </div>
-                        <div class="action-buttons">
-                            <button class="btn-success btn" onclick="reviewApplication(${application.id}, 'approved')">通过</button>
-                            <button class="btn-danger btn" onclick="reviewApplication(${application.id}, 'rejected')">驳回</button>
-                            <button class="btn-warning btn" onclick="requestModification(${application.id})">要求修改</button>
+                        <div class="action-buttons" style="display: flex; flex-direction: column; gap: 8px; min-width: 120px;">
+                            <button class="btn btn-outline" onclick="viewApplicationDetail(${application.id})" style="padding: 8px 16px; font-size: 13px; white-space: nowrap;">查看详情</button>
+                            <button class="btn-success btn" onclick="reviewApplication(${application.id}, 'approved')" style="padding: 8px 16px; font-size: 13px; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border: none;">通过</button>
+                            <button class="btn-danger btn" onclick="reviewApplication(${application.id}, 'rejected')" style="padding: 8px 16px; font-size: 13px; background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); border: none;">驳回</button>
                         </div>
                     </div>
                     ${application.review_comment ? `
@@ -1682,7 +2083,6 @@ async function renderStudentMaterials() {
                             <div style="color: rgba(255, 255, 255, 0.8); font-size: 14px; margin-top: 5px;">${application.review_comment}</div>
                         </div>
                     ` : ''}
-                    ${materialsHtml || '<div style="color: rgba(255, 255, 255, 0.7); padding: 20px; text-align: center;">暂无申报项目</div>'}
                 `;
                 
                 container.appendChild(studentCard);
@@ -1693,31 +2093,38 @@ async function renderStudentMaterials() {
         
     } catch (error) {
         console.error('Error rendering student materials:', error);
-        container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 40px;">加载申请失败</div>';
+        container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 40px;">加载申请失败: ' + error.message + '</div>';
     }
 }
 
 async function reviewApplication(applicationId, status) {
-    const comment = prompt(status === 'approved' ? '请输入通过理由（可选）:' : '请输入驳回理由:');
+    const comment = prompt(status === 'approved' ? '请输入通过理由（可选）:' : '请输入驳回理由');
     
     if (status === 'rejected' && (!comment || comment.trim() === '')) {
-        alert('驳回申请必须填写理由！');
+        alert('驳回申请必须填写理由');
         return;
     }
     
     try {
-        const response = await ApiClient.post('api/applications.php', {
-            action: 'reviewApplication',
-            application_id: applicationId,
-            status: status,
-            comment: comment || ''
+        const formData = new FormData();
+        formData.append('action', 'review');
+        formData.append('id', applicationId);
+        formData.append('status', status);
+        formData.append('comment', comment || '');
+        
+        const response = await fetch('api/applications.php', {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin'
         });
         
-        if (response.success) {
-            alert(`申请已${status === 'approved' ? '通过' : '驳回'}！`);
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(`申请${status === 'approved' ? '通过' : '驳回'}！`);
             renderStudentMaterials();
         } else {
-            throw new Error(response.message || '审核失败');
+            throw new Error(data.message || '审核失败');
         }
     } catch (error) {
         console.error('Review application error:', error);
@@ -1726,7 +2133,7 @@ async function reviewApplication(applicationId, status) {
 }
 
 async function requestModification(applicationId) {
-    const comment = prompt('请输入修改要求:');
+    const comment = prompt('请输入修改要求');
     
     if (!comment || comment.trim() === '') {
         alert('请填写修改要求！');
@@ -1742,7 +2149,7 @@ async function requestModification(applicationId) {
         });
         
         if (response.success) {
-            alert('修改要求已发送给学生！');
+            alert('修改要求已发送给学生');
             renderStudentMaterials();
         } else {
             throw new Error(response.message || '操作失败');
@@ -1763,11 +2170,14 @@ async function loadUsersList() {
         if (response.success) {
             renderUsersList(response.users);
         } else {
-            throw new Error(response.message || '加载用户列表失败');
+            throw new Error(response.message || '获取用户列表失败');
         }
     } catch (error) {
-        console.error('Load users error:', error);
-        document.getElementById('usersList').innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 40px;">加载用户列表失败</div>';
+        console.error('Load users list error:', error);
+        const container = document.getElementById('usersList');
+        if (container) {
+            container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 40px;">加载用户列表失败</div>';
+        }
     }
 }
 
@@ -1821,7 +2231,7 @@ function renderUsersList(users) {
                 ` : ''}
                 
                 <div style="color: rgba(255, 255, 255, 0.6); font-size: 12px; margin-bottom: 15px;">
-                    创建时间：${formatDate(user.created_at)}
+                    创建时间: ${formatDate(user.created_at)}
                 </div>
                 
                 <div style="display: flex; gap: 10px; justify-content: flex-end;">
@@ -1839,21 +2249,13 @@ function renderUsersList(users) {
 // 添加用户
 async function addUser() {
     const formData = new FormData();
-    formData.append('action', currentEditingUser ? 'update' : 'add');
+    formData.append('action', 'add');
     formData.append('username', document.getElementById('newUsername').value);
     formData.append('type', document.getElementById('userType').value);
     formData.append('real_name', document.getElementById('realName').value);
     formData.append('email', document.getElementById('userEmail').value);
     formData.append('phone', document.getElementById('userPhone').value);
-    
-    const password = document.getElementById('newPassword').value;
-    if (password || !currentEditingUser) {
-        formData.append('password', password);
-    }
-    
-    if (currentEditingUser) {
-        formData.append('id', currentEditingUser);
-    }
+    formData.append('password', document.getElementById('newPassword').value);
     
     // 如果是学生，添加学生信息
     if (document.getElementById('userType').value === 'student') {
@@ -1872,19 +2274,15 @@ async function addUser() {
         const data = await response.json();
         
         if (data.success) {
-            alert(currentEditingUser ? '用户更新成功！' : '用户添加成功！');
-            if (currentEditingUser) {
-                currentEditingUser = null;
-                document.querySelector('#userForm button[type="submit"]').textContent = '添加用户';
-            }
+            alert('用户添加成功');
             clearUserForm();
             loadUsersList();
         } else {
-            throw new Error(data.message || '操作失败');
+            throw new Error(data.message || '添加失败');
         }
     } catch (error) {
         console.error('Add/Update user error:', error);
-        alert('操作失败：' + error.message);
+        alert('添加用户失败：' + error.message);
     }
 }
 
@@ -1963,7 +2361,7 @@ async function saveUserEdit() {
         const data = await response.json();
         
         if (data.success) {
-            alert('用户更新成功！');
+            alert('用户更新成功');
             closeEditUserModal();
             loadUsersList();
         } else {
@@ -1995,7 +2393,7 @@ async function deleteUser(userId, username) {
         const data = await response.json();
         
         if (data.success) {
-            alert('用户删除成功！');
+            alert('用户删除成功');
             loadUsersList();
         } else {
             throw new Error(data.message || '删除失败');
@@ -2009,7 +2407,860 @@ async function deleteUser(userId, username) {
 // 清空用户表单
 function clearUserForm() {
     document.getElementById('userForm').reset();
-    document.getElementById('studentFields').style.display = 'none';
-    document.querySelector('#userForm button[type="submit"]').textContent = '添加用户';
-    currentEditingUser = null;
-} 
+    const studentFields = document.getElementById('studentFields');
+    if (studentFields) {
+        studentFields.style.display = 'none';
+    }
+    const submitBtn = document.querySelector('#userForm button[type="submit"]');
+    if (submitBtn) {
+        submitBtn.textContent = '添加用户';
+    }
+}
+
+// 下载用户导入模板
+function downloadUserTemplate() {
+    const link = document.createElement('a');
+    link.href = 'api/users.php?action=download_template';
+    link.download = '用户批量导入模板.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+// 处理文件选择
+function handleUserImportFileSelect(event) {
+    console.log('File select triggered', event.target.files);
+    
+    const file = event.target.files[0];
+    const fileInfo = document.getElementById('importFileInfo');
+    const fileName = document.getElementById('importFileName');
+    const importBtn = document.getElementById('importUsersBtn');
+    
+    console.log('Elements found:', {
+        fileInfo: !!fileInfo,
+        fileName: !!fileName,
+        importBtn: !!importBtn
+    });
+    
+    if (file) {
+        console.log('File selected:', file.name, file.size, file.type);
+        
+        // 检查文件类型
+        if (!file.name.toLowerCase().endsWith('.csv')) {
+            alert('请选择CSV格式的文件');
+            event.target.value = '';
+            return;
+        }
+        
+        // 检查文件大小（5MB）
+        if (file.size > 5 * 1024 * 1024) {
+            alert('文件大小不能超过5MB');
+            event.target.value = '';
+            return;
+        }
+        
+        if (fileName) {
+            fileName.textContent = file.name;
+        }
+        if (fileInfo) {
+            fileInfo.style.display = 'block';
+        }
+        if (importBtn) {
+            importBtn.disabled = false;
+            importBtn.style.opacity = '1';
+            importBtn.style.cursor = 'pointer';
+            console.log('Import button enabled');
+        }
+    } else {
+        console.log('No file selected');
+        if (fileInfo) {
+            fileInfo.style.display = 'none';
+        }
+        if (importBtn) {
+            importBtn.disabled = true;
+            importBtn.style.opacity = '0.5';
+            importBtn.style.cursor = 'not-allowed';
+            console.log('Import button disabled');
+        }
+    }
+}
+
+// 批量导入用户
+async function importUsers() {
+    const fileInput = document.getElementById('userImportFile');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert('请先选择要导入的文件');
+        return;
+    }
+    
+    const importBtn = document.getElementById('importUsersBtn');
+    const progress = document.getElementById('importProgress');
+    const progressBar = document.getElementById('importProgressBar');
+    const progressText = document.getElementById('importProgressText');
+    
+    try {
+        // 显示进度条
+        progress.style.display = 'block';
+        importBtn.disabled = true;
+        progressBar.style.width = '20%';
+        progressText.textContent = '准备上传文件...';
+        
+        // 创建FormData
+        const formData = new FormData();
+        formData.append('action', 'batch_import');
+        formData.append('import_file', file);
+        
+        progressBar.style.width = '50%';
+        progressText.textContent = '正在上传并处理文件...';
+        
+        // 发送请求
+        const response = await fetch('api/users.php', {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin'
+        });
+        
+        progressBar.style.width = '80%';
+        progressText.textContent = '处理服务器响应...';
+        
+        const data = await response.json();
+        
+        progressBar.style.width = '100%';
+        progressText.textContent = '完成！';
+        
+        if (data.success) {
+            // 显示详细结果
+            let message = data.message;
+            if (data.errors && data.errors.length > 0) {
+                message += '\n\n详细错误信息：\n' + data.errors.slice(0, 20).join('\n');
+                if (data.errors.length > 20) {
+                    message += '\n...（还有 ' + (data.errors.length - 20) + ' 个错误）';
+                }
+            }
+            
+            alert(message);
+            
+            // 重新加载用户列表
+            await loadUsersList();
+            
+            // 清理文件选择
+            fileInput.value = '';
+            document.getElementById('importFileInfo').style.display = 'none';
+        } else {
+            throw new Error(data.message || '导入失败');
+        }
+    } catch (error) {
+        console.error('Import users error:', error);
+        progressBar.style.width = '100%';
+        progressBar.style.background = '#ef4444';
+        progressText.textContent = '导入失败';
+        alert('批量导入失败：' + error.message);
+    } finally {
+        // 恢复界面状态
+        setTimeout(() => {
+            progress.style.display = 'none';
+            progressBar.style.width = '0%';
+            progressBar.style.background = 'linear-gradient(90deg, #3b82f6, #06d6a0)';
+            
+            // 检查是否还有文件选中，决定按钮状态
+            const fileInput = document.getElementById('userImportFile');
+            if (fileInput && fileInput.files[0]) {
+                importBtn.disabled = false;
+                importBtn.style.opacity = '1';
+                importBtn.style.cursor = 'pointer';
+            } else {
+                importBtn.disabled = true;
+                importBtn.style.opacity = '0.5';
+                importBtn.style.cursor = 'not-allowed';
+            }
+        }, 2000);
+    }
+}
+
+// 查看申请详情
+async function viewApplicationDetail(applicationId) {
+    try {
+        const response = await ApiClient.get(`api/applications.php?action=get_detail&id=${applicationId}`);
+        
+        if (response.success && response.data) {
+            const application = response.data;
+            
+            let materialsHtml = '';
+            
+            if (application.materials && application.materials.length > 0) {
+                const materialsByCategory = {};
+                application.materials.forEach(material => {
+                    if (!materialsByCategory[material.category_name]) {
+                        materialsByCategory[material.category_name] = [];
+                    }
+                    materialsByCategory[material.category_name].push(material);
+                });
+                
+                Object.keys(materialsByCategory).forEach(categoryName => {
+                    const categoryItems = materialsByCategory[categoryName];
+                    const categoryScore = categoryItems.reduce((sum, item) => sum + parseFloat(item.score || 0), 0);
+                    
+                    let categoryItemsHtml = '';
+                    categoryItems.forEach((material, index) => {
+                        const filesHtml = material.files && material.files.length > 0 ? material.files.map(file => {
+                            const filePath = file.file_path.startsWith('uploads/') ? file.file_path : `uploads/${file.file_path}`;
+                            const fileIcon = getFileIcon(file.file_type || file.original_name);
+                            return `
+                                <div style="margin: 5px; padding: 10px; background: rgba(255,255,255,0.15); border-radius: 8px; display: inline-block; min-width: 120px; border: 1px solid rgba(255,255,255,0.1); transition: all 0.3s ease; cursor: pointer;" onclick="previewFile('${filePath}', '${file.file_type}', '${file.original_name}')" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+                                    <div style="color: white; font-size: 13px; margin-bottom: 4px; word-break: break-all;">
+                                        ${fileIcon} ${file.original_name}
+                                    </div>
+                                    <div style="color: rgba(255, 255, 255, 0.6); font-size: 11px;">${formatFileSize(file.file_size)}</div>
+                                </div>
+                            `;
+                        }).join('') : '<div style="color: rgba(255, 255, 255, 0.5); font-size: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">无附件</div>';
+                        
+                        const levelName = levelNames[material.award_level] || '未知级别';
+                        const gradeName = gradeNames[material.award_grade] || '未知等级';
+                        
+                        categoryItemsHtml += `
+                            <div style="background: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(8px);">
+                                <div style="color: #fbbf24; font-weight: 700; margin-bottom: 8px; font-size: 16px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">
+                                    ${index + 1}. ${material.item_name}
+                                </div>
+                                <div style="color: #ffffff; font-size: 14px; margin-bottom: 15px; background: rgba(255, 255, 255, 0.1); padding: 10px 15px; border-radius: 8px; font-weight: 600;">
+                                    ${levelName} ${gradeName} - 得分: <span style="color: #22c55e; font-weight: 700; font-size: 16px;">${material.score}分</span>
+                                </div>
+                                <div style="color: #ffffff; font-size: 14px; margin-bottom: 12px; font-weight: 600;">附件:</div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                    ${filesHtml}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    materialsHtml += `
+                        <div style="margin-bottom: 25px;">
+                            <h4 style="color: #ffffff; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 20px; font-weight: 700; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">
+                                <span>${categoryName}</span>
+                                <span style="color: #22c55e; font-size: 16px; background: rgba(34, 197, 94, 0.3); padding: 8px 16px; border-radius: 12px; font-weight: 700; border: 1px solid rgba(34, 197, 94, 0.4);">
+                                    ${categoryScore}分
+                                </span>
+                            </h4>
+                            ${categoryItemsHtml}
+                        </div>
+                    `;
+                });
+            }
+            
+            const statusText = {
+                'pending': '待审核',
+                'approved': '已通过',
+                'rejected': '已驳回'
+            };
+            
+            // 创建模态框显示详情
+            const detailModal = document.createElement('div');
+            detailModal.className = 'announcement-modal';
+            detailModal.innerHTML = `
+                <div class="announcement-content application-detail-content" style="min-width: 900px; max-width: 1200px; width: 90vw; max-height: 90vh; overflow-y: auto; padding: 40px; background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 2px solid rgba(255, 255, 255, 0.25); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);">
+                    <div class="announcement-header" style="margin-bottom: 30px; border-bottom: 2px solid rgba(255, 255, 255, 0.2); padding-bottom: 20px;">
+                        <h2 class="announcement-title" style="color: #ffffff; font-size: 28px; font-weight: 700; text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);">申请详情</h2>
+                        <button class="announcement-close" onclick="this.closest('.announcement-modal').remove()" style="color: #ffffff; font-size: 32px; font-weight: bold;">×</button>
+                    </div>
+                    <div class="announcement-body">
+                        <div style="background: rgba(255, 255, 255, 0.2); padding: 25px; border-radius: 15px; margin-bottom: 30px; border: 1px solid rgba(255, 255, 255, 0.3); backdrop-filter: blur(10px);">
+                            <div style="color: #ffffff; margin-bottom: 15px; font-size: 16px; font-weight: 600;"><strong>批次:</strong> <span style="color: #fbbf24; font-weight: 700;">${application.batch_name}</span></div>
+                            <div style="color: #ffffff; margin-bottom: 15px; font-size: 16px; font-weight: 600;"><strong>状态:</strong> 
+                                <span style="color: ${application.status === 'pending' ? '#fbbf24' : application.status === 'approved' ? '#22c55e' : '#ef4444'}; font-weight: 700; padding: 4px 12px; background: rgba(255, 255, 255, 0.1); border-radius: 8px;">
+                                    ${statusText[application.status]}
+                                </span>
+                            </div>
+                            <div style="color: #ffffff; margin-bottom: 15px; font-size: 16px; font-weight: 600;"><strong>提交时间:</strong> <span style="color: #60a5fa;">${formatDate(application.submitted_at)}</span></div>
+                            <div style="color: #ffffff; font-size: 18px; font-weight: 600;"><strong>总分:</strong> <span style="color: #22c55e; font-weight: 700; font-size: 24px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">${application.total_score || 0}分</span></div>
+                        </div>
+                        ${materialsHtml || '<div style="color: rgba(255, 255, 255, 0.8); padding: 30px; text-align: center; font-size: 18px; background: rgba(255, 255, 255, 0.1); border-radius: 15px;">暂无申报材料</div>'}
+                        ${application.review_comment ? `
+                            <div style="background: rgba(255, 255, 255, 0.2); padding: 25px; border-radius: 15px; margin-top: 30px; border: 1px solid rgba(255, 255, 255, 0.3);">
+                                <div style="color: #ffffff; font-size: 18px; font-weight: 700; margin-bottom: 15px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">审核意见:</div>
+                                <div style="color: #ffffff; font-size: 16px; line-height: 1.6; background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 10px;">${application.review_comment}</div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(detailModal);
+        } else {
+            alert('获取申请详情失败：' + (response.message || '未知错误'));
+        }
+    } catch (error) {
+        console.error('Error viewing application:', error);
+        alert('查看申请失败：' + error.message);
+    }
+}
+
+// 批次管理相关函数
+async function loadBatchesList() {
+    try {
+        const response = await ApiClient.get('api/applications.php?action=getBatches');
+        if (response.success) {
+            renderBatchesList(response.batches || response.data || []);
+        } else {
+            throw new Error(response.message || '获取批次列表失败');
+        }
+    } catch (error) {
+        console.error('Load batches list error:', error);
+        const container = document.getElementById('batchesList');
+        if (container) {
+            container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 40px;">加载批次列表失败</div>';
+        }
+    }
+}
+
+function renderBatchesList(batches) {
+    const container = document.getElementById('batchesList');
+    
+    if (!container) return;
+    
+    if (batches.length === 0) {
+        container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 40px;">暂无批次</div>';
+        return;
+    }
+    
+    container.innerHTML = batches.map(batch => {
+        const statusText = batch.status === 'open' ? '开放' : '关闭';
+        const statusClass = batch.status === 'open' ? 'status-approved' : 'status-rejected';
+        
+        return `
+            <div class="user-item" style="margin-bottom: 15px;">
+                <div style="flex: 1;">
+                    <div style="color: white; font-weight: 600; margin-bottom: 5px;">${batch.name}</div>
+                    <div style="color: rgba(255, 255, 255, 0.7); font-size: 13px; margin-bottom: 5px;">
+                        ${batch.description || '无描述'}
+                    </div>
+                    <div style="color: rgba(255, 255, 255, 0.6); font-size: 12px;">
+                        开放: ${formatDate(batch.start_date)} | 结束: ${formatDate(batch.end_date)}
+                    </div>
+                    <span class="application-status ${statusClass}" style="margin-top: 8px; display: inline-block;">
+                        ${statusText}
+                    </span>
+                </div>
+                <div class="user-actions">
+                    <button class="btn btn-outline" onclick="editBatch(${batch.id})">编辑</button>
+                    <button class="btn-danger btn" onclick="deleteBatchItem(${batch.id}, '${batch.name}')">删除</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function addBatch() {
+    const name = document.getElementById('batchName').value.trim();
+    const description = document.getElementById('batchDescription').value.trim();
+    const startDate = document.getElementById('batchStartDate').value;
+    const endDate = document.getElementById('batchEndDate').value;
+    const status = document.getElementById('batchStatus').value;
+    
+    console.log('Batch form data:', { name, description, startDate, endDate, status });
+    console.log('Form element values:', {
+        nameEl: document.getElementById('batchName'),
+        nameValue: document.getElementById('batchName')?.value,
+        startDateEl: document.getElementById('batchStartDate'),
+        startDateValue: document.getElementById('batchStartDate')?.value,
+        endDateEl: document.getElementById('batchEndDate'),
+        endDateValue: document.getElementById('batchEndDate')?.value,
+        statusEl: document.getElementById('batchStatus'),
+        statusValue: document.getElementById('batchStatus')?.value
+    });
+    
+    if (!name) {
+        alert('请填写批次名称');
+        return;
+    }
+    
+    if (!startDate) {
+        alert('请选择开始日期');
+        return;
+    }
+    
+    if (!endDate) {
+        alert('请选择结束日期');
+        return;
+    }
+    
+    if (!status) {
+        alert('请选择状态');
+        return;
+    }
+    
+    if (new Date(startDate) >= new Date(endDate)) {
+        alert('结束日期必须晚于开始日期！');
+        return;
+    }
+    
+    try {
+        const formData = new FormData();
+        formData.append('action', 'addBatch');
+        formData.append('name', name);
+        formData.append('description', description);
+        formData.append('start_date', startDate);
+        formData.append('end_date', endDate);
+        formData.append('status', status);
+        
+        console.log('Sending batch data:', {
+            action: 'addBatch',
+            name,
+            description,
+            start_date: startDate,
+            end_date: endDate,
+            status
+        });
+        
+        // 打印FormData内容
+        console.log('FormData contents:');
+        for (let [key, value] of formData.entries()) {
+            console.log(`${key}: ${value}`);
+        }
+        
+        const response = await fetch('api/applications.php', {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin'
+        });
+        
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+        
+        const responseText = await response.text();
+        console.log('Raw response:', responseText);
+        
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (parseError) {
+            console.error('JSON parse error:', parseError);
+            alert('服务器返回了无效的JSON响应: ' + responseText);
+            return;
+        }
+        
+        if (data.success) {
+            alert('批次添加成功');
+            clearBatchForm();
+            loadBatchesList();
+        } else {
+            throw new Error(data.message || '添加失败');
+        }
+    } catch (error) {
+        console.error('Add batch error:', error);
+        alert('添加批次失败：' + error.message);
+    }
+}
+
+function clearBatchForm() {
+    document.getElementById('batchName').value = '';
+    document.getElementById('batchDescription').value = '';
+    document.getElementById('batchStartDate').value = '';
+    document.getElementById('batchEndDate').value = '';
+    document.getElementById('batchStatus').value = 'open';
+}
+
+let currentEditingBatch = null;
+
+async function editBatch(batchId) {
+    try {
+        // 获取批次详情
+        const response = await ApiClient.get('api/applications.php?action=getBatches');
+        if (response.success) {
+            const batch = (response.batches || response.data || []).find(b => b.id == batchId);
+            if (batch) {
+                currentEditingBatch = batch;
+                showEditBatchModal(batch);
+            } else {
+                alert('批次不存在');
+            }
+        }
+    } catch (error) {
+        console.error('Edit batch error:', error);
+        alert('获取批次信息失败：' + error.message);
+    }
+}
+
+function showEditBatchModal(batch) {
+    const modal = document.createElement('div');
+    modal.className = 'announcement-modal';
+    modal.innerHTML = `
+        <div class="announcement-content" style="min-width: 700px; max-width: 900px; width: 80vw; padding: 40px; background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 2px solid rgba(255, 255, 255, 0.25); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);">
+            <div class="announcement-header" style="margin-bottom: 30px; border-bottom: 2px solid rgba(255, 255, 255, 0.2); padding-bottom: 20px;">
+                <h2 class="announcement-title" style="color: #ffffff; font-size: 28px; font-weight: 700; text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);">编辑批次</h2>
+                <button class="announcement-close" onclick="this.closest('.announcement-modal').remove()" style="color: #ffffff; font-size: 32px; font-weight: bold;">×</button>
+            </div>
+            <div class="announcement-body">
+                <form id="editBatchForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" style="color: #ffffff; font-weight: 600; font-size: 16px;">批次名称</label>
+                            <input type="text" id="editBatchName" class="form-input" value="${batch.name}" required style="background: rgba(255, 255, 255, 0.2); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3);">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" style="color: #ffffff; font-weight: 600; font-size: 16px;">批次描述</label>
+                            <input type="text" id="editBatchDescription" class="form-input" value="${batch.description || ''}" style="background: rgba(255, 255, 255, 0.2); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3);">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" style="color: #ffffff; font-weight: 600; font-size: 16px;">开始日期</label>
+                            <input type="date" id="editBatchStartDate" class="form-input" value="${batch.start_date}" required style="background: rgba(255, 255, 255, 0.2); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3);">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" style="color: #ffffff; font-weight: 600; font-size: 16px;">结束日期</label>
+                            <input type="date" id="editBatchEndDate" class="form-input" value="${batch.end_date}" required style="background: rgba(255, 255, 255, 0.2); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3);">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" style="color: #ffffff; font-weight: 600; font-size: 16px;">状态</label>
+                            <select id="editBatchStatus" class="form-select" required style="background: rgba(255, 255, 255, 0.2); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3);">
+                                <option value="open" ${batch.status === 'open' ? 'selected' : ''}>开放</option>
+                                <option value="closed" ${batch.status === 'closed' ? 'selected' : ''}>关闭</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="announcement-footer" style="margin-top: 30px; padding-top: 20px; border-top: 2px solid rgba(255, 255, 255, 0.2);">
+                <div class="announcement-actions">
+                    <button class="announcement-btn-action btn-close" onclick="this.closest('.announcement-modal').remove()" style="background: rgba(255, 255, 255, 0.2); color: #ffffff; padding: 12px 24px; font-size: 16px;">取消</button>
+                    <button class="announcement-btn-action btn" onclick="saveBatchEdit()" style="background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); color: #ffffff; padding: 12px 24px; font-size: 16px; font-weight: 600;">保存</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+}
+
+async function saveBatchEdit() {
+    if (!currentEditingBatch) return;
+    
+    const name = document.getElementById('editBatchName').value.trim();
+    const description = document.getElementById('editBatchDescription').value.trim();
+    const startDate = document.getElementById('editBatchStartDate').value;
+    const endDate = document.getElementById('editBatchEndDate').value;
+    const status = document.getElementById('editBatchStatus').value;
+    
+    if (!name || !startDate || !endDate) {
+        alert('请填写批次名称、开始日期和结束日期');
+        return;
+    }
+    
+    if (new Date(startDate) >= new Date(endDate)) {
+        alert('结束日期必须晚于开始日期！');
+        return;
+    }
+    
+    try {
+        const formData = new FormData();
+        formData.append('action', 'updateBatch');
+        formData.append('id', currentEditingBatch.id);
+        formData.append('name', name);
+        formData.append('description', description);
+        formData.append('start_date', startDate);
+        formData.append('end_date', endDate);
+        formData.append('status', status);
+        
+        const response = await fetch('api/applications.php', {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('批次更新成功');
+            document.querySelector('.announcement-modal').remove();
+            loadBatchesList();
+            currentEditingBatch = null;
+        } else {
+            throw new Error(data.message || '更新失败');
+        }
+    } catch (error) {
+        console.error('Update batch error:', error);
+        alert('更新批次失败：' + error.message);
+    }
+}
+
+async function deleteBatchItem(batchId, batchName) {
+    if (!confirm(`确定要删除批次 "${batchName}" 吗？\n注意：如果该批次已有申请，则无法删除。`)) {
+        return;
+    }
+    
+    try {
+        const formData = new FormData();
+        formData.append('action', 'deleteBatch');
+        formData.append('id', batchId);
+        
+        const response = await fetch('api/applications.php', {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('批次删除成功');
+            loadBatchesList();
+        } else {
+            throw new Error(data.message || '删除失败');
+        }
+    } catch (error) {
+        console.error('Delete batch error:', error);
+        alert('删除批次失败：' + error.message);
+    }
+}
+
+// 为批次表单添加事件监听
+document.addEventListener('DOMContentLoaded', function() {
+    const batchForm = document.getElementById('batchForm');
+    if (batchForm) {
+        batchForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            addBatch();
+        });
+    }
+});
+
+// 编辑申请功能
+async function editApplication(applicationId) {
+    try {
+        // 获取申请详情
+        const response = await ApiClient.get(`api/applications.php?action=get_detail&id=${applicationId}`);
+        
+        if (response.success && response.data) {
+            const application = response.data;
+            
+            // 跳转到申请页面并预填数据
+            showApplicationPage(application.batch_id, applicationId);
+        } else {
+            alert('获取申请详情失败：' + (response.message || '未知错误'));
+        }
+    } catch (error) {
+        console.error('Edit application error:', error);
+        alert('获取申请详情失败：' + error.message);
+    }
+}
+
+// 排名功能相关函数
+async function initRankingTab() {
+    try {
+        // 加载批次列表到排名下拉框
+        await DataManager.loadBatches();
+        const rankingBatchSelect = document.getElementById('rankingBatchSelect');
+        if (rankingBatchSelect) {
+            rankingBatchSelect.innerHTML = '<option value="">请选择批次</option>';
+            
+            batches.forEach(batch => {
+                const option = document.createElement('option');
+                option.value = batch.id;
+                option.textContent = batch.name;
+                rankingBatchSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Init ranking tab error:', error);
+        // 如果加载失败，至少提供一个错误提示
+        const rankingBatchSelect = document.getElementById('rankingBatchSelect');
+        if (rankingBatchSelect) {
+            rankingBatchSelect.innerHTML = '<option value="">加载批次失败</option>';
+        }
+    }
+}
+
+async function loadBatchRanking() {
+    const batchSelect = document.getElementById('rankingBatchSelect');
+    const batchId = batchSelect.value;
+    const tableContainer = document.getElementById('rankingTableContainer');
+    const exportBtn = document.getElementById('exportBtn');
+    
+    if (!batchId) {
+        tableContainer.innerHTML = '<p style="text-align: center; color: rgba(255, 255, 255, 0.7);">请选择批次查看排名</p>';
+        exportBtn.disabled = true;
+        return;
+    }
+    
+    try {
+        // 显示加载状态
+        tableContainer.innerHTML = '<p style="text-align: center; color: rgba(255, 255, 255, 0.7);">正在加载排名数据...</p>';
+        
+        const response = await fetch(`api/ranking.php?action=getBatchRanking&batch_id=${batchId}`, {
+            method: 'GET',
+            credentials: 'same-origin'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            renderRankingTable(data.data);
+            exportBtn.disabled = false;
+        } else {
+            throw new Error(data.message || '获取排名数据失败');
+        }
+    } catch (error) {
+        console.error('Load batch ranking error:', error);
+        tableContainer.innerHTML = `<p style="text-align: center; color: #ff6b6b;">加载失败: ${error.message}</p>`;
+        exportBtn.disabled = true;
+    }
+}
+
+function renderRankingTable(data) {
+    const tableContainer = document.getElementById('rankingTableContainer');
+    const { batch, rankings, total_count } = data;
+    
+    if (rankings.length === 0) {
+        tableContainer.innerHTML = `
+            <div style="text-align: center; padding: 40px; color: rgba(255, 255, 255, 0.7);">
+                <div style="font-size: 48px; margin-bottom: 20px;">📊</div>
+                <h3>暂无排名数据</h3>
+                <p>该批次还没有审核通过的申请</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let tableHtml = `
+        <div style="margin-bottom: 20px;">
+            <h3 style="color: white; margin: 0;">${batch.name} - 奖学金排名</h3>
+            <p style="color: rgba(255, 255, 255, 0.7); margin: 5px 0;">共 ${total_count} 人通过审核</p>
+        </div>
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; background: rgba(255, 255, 255, 0.1); border-radius: 12px; overflow: hidden;">
+                <thead>
+                    <tr style="background: rgba(255, 255, 255, 0.2);">
+                        <th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">排名</th>
+                        <th style="padding: 15px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">姓名</th>
+                        <th style="padding: 15px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">学号</th>
+                        <th style="padding: 15px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">班级</th>
+                        <th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">总分</th>
+                        <th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">德育</th>
+                        <th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">能力</th>
+                        <th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">体育</th>
+                        <th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">其他</th>
+                        <th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">审核时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    rankings.forEach((ranking, index) => {
+        // 计算各类目分数
+        const categoryScores = {
+            '德育': 0,
+            '能力': 0,
+            '体育': 0,
+            '其他材料': 0
+        };
+        
+        Object.keys(ranking.materials).forEach(categoryName => {
+            const materials = ranking.materials[categoryName];
+            let categoryScore = 0;
+            materials.forEach(material => {
+                categoryScore += parseFloat(material.score || 0);
+            });
+            if (categoryScores.hasOwnProperty(categoryName)) {
+                categoryScores[categoryName] = categoryScore;
+            }
+        });
+        
+        const rowStyle = index % 2 === 0 ? 'background: rgba(255, 255, 255, 0.05);' : '';
+        const rankStyle = ranking.rank <= 3 ? 
+            (ranking.rank === 1 ? 'color: #ffd700; font-weight: bold;' : 
+             ranking.rank === 2 ? 'color: #c0c0c0; font-weight: bold;' : 
+             'color: #cd7f32; font-weight: bold;') : 'color: white;';
+        
+        tableHtml += `
+            <tr style="${rowStyle}">
+                <td style="padding: 12px; text-align: center; ${rankStyle} border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${ranking.rank <= 3 ? (ranking.rank === 1 ? '🥇' : ranking.rank === 2 ? '🥈' : '🥉') : ''} ${ranking.rank}
+                </td>
+                <td style="padding: 12px; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${ranking.real_name || ranking.username}
+                </td>
+                <td style="padding: 12px; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${ranking.student_id || '-'}
+                </td>
+                <td style="padding: 12px; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${ranking.class || '-'}
+                </td>
+                <td style="padding: 12px; text-align: center; color: #4ecdc4; font-weight: bold; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${parseFloat(ranking.total_score).toFixed(1)}
+                </td>
+                <td style="padding: 12px; text-align: center; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${categoryScores['德育'].toFixed(1)}
+                </td>
+                <td style="padding: 12px; text-align: center; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${categoryScores['能力'].toFixed(1)}
+                </td>
+                <td style="padding: 12px; text-align: center; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${categoryScores['体育'].toFixed(1)}
+                </td>
+                <td style="padding: 12px; text-align: center; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${categoryScores['其他材料'].toFixed(1)}
+                </td>
+                <td style="padding: 12px; text-align: center; color: rgba(255, 255, 255, 0.6); font-size: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${new Date(ranking.reviewed_at).toLocaleDateString('zh-CN')}
+                </td>
+            </tr>
+        `;
+    });
+    
+    tableHtml += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    tableContainer.innerHTML = tableHtml;
+}
+
+async function exportRankingToExcel() {
+    const batchSelect = document.getElementById('rankingBatchSelect');
+    const batchId = batchSelect.value;
+    
+    if (!batchId) {
+        alert('请先选择批次');
+        return;
+    }
+    
+    try {
+        const exportBtn = document.getElementById('exportBtn');
+        const originalText = exportBtn.innerHTML;
+        exportBtn.innerHTML = '导出中...';
+        exportBtn.disabled = true;
+        
+        const response = await fetch(`api/ranking.php?action=exportExcel&batch_id=${batchId}`, {
+            method: 'GET',
+            credentials: 'same-origin'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // 创建下载链接
+            const downloadUrl = data.data.download_url;
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = data.data.file_name;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            alert('导出成功！文件已开始下载。');
+        } else {
+            throw new Error(data.message || '导出失败');
+        }
+    } catch (error) {
+        console.error('Export ranking error:', error);
+        alert('导出失败: ' + error.message);
+    } finally {
+        const exportBtn = document.getElementById('exportBtn');
+        exportBtn.innerHTML = '📥 导出Excel';
+        exportBtn.disabled = false;
+    }
+}

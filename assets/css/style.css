@@ -283,12 +283,50 @@ body::before {
     background: rgba(255, 255, 255, 0.1);
 }
 
+.btn-outline:disabled,
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn:disabled {
+    pointer-events: none;
+}
+
+.btn:not(:disabled) {
+    pointer-events: auto;
+}
+
+.btn-outline:disabled:hover,
+.btn:disabled:hover {
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: none;
+    box-shadow: none;
+}
+
 .btn-success {
-    background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    color: white;
+    border: none;
+}
+
+.btn-success:hover {
+    background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
 }
 
 .btn-danger {
-    background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: white;
+    border: none;
+}
+
+.btn-danger:hover {
+    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
 }
 
 .btn-warning {
@@ -352,16 +390,31 @@ body::before {
 .status-pending {
     background: rgba(251, 191, 36, 0.2);
     color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
 }
 
 .status-approved {
     background: rgba(34, 197, 94, 0.2);
     color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
 }
 
 .status-rejected {
     background: rgba(239, 68, 68, 0.2);
     color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
 }
 
 /* 上传界面 */
@@ -523,16 +576,82 @@ body::before {
 }
 
 .student-card {
-    background: rgba(255, 255, 255, 0.1);
-    padding: 20px;
-    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 25px;
+    border-radius: 15px;
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.student-card:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
 }
 
 .student-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
+    gap: 20px;
+}
+
+.student-header > div:first-child {
+    flex: 1;
+    min-width: 0;
+}
+
+.application-card {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 20px;
+    border-radius: 12px;
     margin-bottom: 15px;
+    transition: all 0.3s ease;
+}
+
+.application-card:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+.application-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.application-header > div:first-child {
+    flex: 1;
+    min-width: 200px;
+}
+
+.user-item {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 20px;
+    border-radius: 12px;
+    margin-bottom: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.user-item:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.user-actions {
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
 }
 
 .material-grid {
@@ -570,14 +689,19 @@ body::before {
 
 .action-buttons {
     display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+    min-width: 120px;
 }
 
-.disabled {
-    opacity: 0.5;
-    cursor: not-allowed !important;
-    pointer-events: none;
+.action-buttons .btn {
+    padding: 10px 16px;
+    font-size: 13px;
+    white-space: nowrap;
+    border-radius: 8px;
+    font-weight: 500;
+    transition: all 0.3s ease;
 }
 
 /* 新增样式 */
@@ -681,24 +805,26 @@ body::before {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.75);
     display: flex;
     justify-content: center;
     align-items: center;
     z-index: 10000;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(8px);
 }
 
 .announcement-content {
-    background: rgba(255, 255, 255, 0.95);
+    background: rgba(30, 58, 138, 0.95);
     backdrop-filter: blur(20px);
     border-radius: 20px;
     padding: 30px;
-    max-width: 600px;
-    max-height: 80vh;
+    min-width: 600px;
+    max-width: 900px;
+    max-height: 85vh;
     overflow-y: auto;
     margin: 20px;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     animation: slideIn 0.3s ease-out;
 }
 
@@ -719,37 +845,47 @@ body::before {
     align-items: center;
     margin-bottom: 20px;
     padding-bottom: 15px;
-    border-bottom: 2px solid rgba(59, 130, 246, 0.2);
+    border-bottom: 2px solid rgba(255, 255, 255, 0.3);
 }
 
 .announcement-title {
-    color: #1e3a8a;
+    color: white;
     font-size: 24px;
     font-weight: 700;
     margin: 0;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .announcement-close {
-    background: transparent;
-    border: none;
-    font-size: 24px;
-    color: #6b7280;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 28px;
+    color: white;
     cursor: pointer;
-    padding: 5px;
-    border-radius: 50%;
-    transition: all 0.2s;
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    width: 45px;
+    height: 45px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
 }
 
 .announcement-close:hover {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
+    background: rgba(239, 68, 68, 0.8);
+    color: white;
+    border-color: rgba(239, 68, 68, 1);
+    transform: scale(1.05);
 }
 
 .announcement-body {
-    color: #374151;
+    color: rgba(255, 255, 255, 0.95);
     line-height: 1.6;
     font-size: 16px;
     margin-bottom: 20px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .announcement-footer {
@@ -760,7 +896,7 @@ body::before {
 }
 
 .announcement-date {
-    color: #6b7280;
+    color: rgba(255, 255, 255, 0.8);
     font-size: 14px;
 }
 
@@ -780,13 +916,14 @@ body::before {
 }
 
 .btn-no-remind {
-    background: rgba(107, 114, 128, 0.1);
-    color: #6b7280;
-    border: 1px solid rgba(107, 114, 128, 0.3);
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
 .btn-no-remind:hover {
-    background: rgba(107, 114, 128, 0.2);
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
 }
 
 .btn-close {
@@ -846,6 +983,8 @@ body::before {
         margin: 10px;
         padding: 20px;
         max-height: 85vh;
+        min-width: auto;
+        max-width: 95vw;
     }
 
     .announcement-footer {
@@ -856,6 +995,44 @@ body::before {
     .announcement-actions {
         width: 100%;
         justify-content: center;
+    }
+
+    .student-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .application-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .action-buttons {
+        flex-direction: row;
+        justify-content: stretch;
+        margin-top: 15px;
+        gap: 10px;
+    }
+    
+    .action-buttons .btn {
+        flex: 1;
+        text-align: center;
+        padding: 12px 8px;
+        font-size: 12px;
+    }
+    
+    .user-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 15px;
+    }
+    
+    .user-actions {
+        justify-content: stretch;
+    }
+    
+    .user-actions .btn {
+        flex: 1;
     }
 }
 
@@ -904,4 +1081,288 @@ body::before {
     background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%);
     transform: translateY(-2px);
     box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
+}
+
+.disabled {
+    opacity: 0.5;
+    cursor: not-allowed !important;
+    pointer-events: none;
+}
+
+/* 申请详情模态框样式 */
+.application-detail-content {
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.application-detail-content::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+    border-radius: 20px;
+    pointer-events: none;
+}
+
+.application-detail-content:hover {
+    transform: scale(1.02);
+    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
+}
+
+/* 增强表单输入的对比度 */
+.form-input::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+}
+
+/* 选择框选项的样式 */
+.form-select option {
+    background: #1e3a8a;
+    color: white;
+    padding: 10px;
+}
+
+.form-select:focus option:checked {
+    background: #3b82f6;
+    color: white;
+}
+
+/* 增强毛玻璃效果的通用类 */
+.enhanced-glass {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.4);
+    transition: all 0.3s ease;
+}
+
+.enhanced-glass:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+}
+
+/* 排名功能专用样式 */
+.ranking-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.ranking-table thead {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.ranking-table th {
+    padding: 15px;
+    color: white;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+    text-align: center;
+}
+
+.ranking-table td {
+    padding: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.3s ease;
+}
+
+.ranking-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: scale(1.01);
+}
+
+.ranking-table tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* 排名列特殊样式 */
+.rank-cell {
+    font-weight: bold;
+    text-align: center;
+    font-size: 16px;
+}
+
+.rank-1 {
+    color: #ffd700;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+.rank-2 {
+    color: #c0c0c0;
+    text-shadow: 0 0 10px rgba(192, 192, 192, 0.5);
+}
+
+.rank-3 {
+    color: #cd7f32;
+    text-shadow: 0 0 10px rgba(205, 127, 50, 0.5);
+}
+
+/* 分数列样式 */
+.score-cell {
+    font-weight: bold;
+    color: #4ecdc4;
+    text-align: center;
+    font-size: 16px;
+}
+
+.category-score {
+    color: rgba(255, 255, 255, 0.8);
+    text-align: center;
+}
+
+/* 排名容器样式 */
+.ranking-container {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 20px;
+    backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ranking-header {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ranking-title {
+    color: white;
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.ranking-subtitle {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 14px;
+    margin: 5px 0 0 0;
+}
+
+/* 排名操作按钮 */
+.ranking-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.ranking-controls .form-group {
+    flex: 1;
+    min-width: 200px;
+}
+
+.export-btn {
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.export-btn:hover {
+    background: linear-gradient(135deg, #047857 0%, #059669 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
+}
+
+.export-btn:disabled {
+    background: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.5);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* 空状态样式 */
+.empty-ranking {
+    text-align: center;
+    padding: 60px 20px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.empty-ranking-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+    opacity: 0.5;
+}
+
+.empty-ranking h3 {
+    font-size: 20px;
+    margin-bottom: 10px;
+    color: white;
+}
+
+.empty-ranking p {
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+/* 加载状态 */
+.loading-ranking {
+    text-align: center;
+    padding: 40px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 1s ease-in-out infinite;
+    margin-right: 10px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .ranking-table {
+        font-size: 12px;
+    }
+    
+    .ranking-table th,
+    .ranking-table td {
+        padding: 8px 4px;
+    }
+    
+    .ranking-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .ranking-controls .form-group {
+        min-width: auto;
+    }
+    
+    .export-btn {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .ranking-header {
+        text-align: center;
+    }
+    
+    .ranking-title {
+        font-size: 20px;
+    }
 } 

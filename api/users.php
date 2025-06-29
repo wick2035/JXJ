@@ -11,53 +11,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
 
-// 抑制错误输出，避免污染JSON响应
-error_reporting(0);
-ini_set('display_errors', 0);
+// 启用错误输出用于调试
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
 session_start();
 
+// 调试会话信息
+error_log('Users API - Session started');
+error_log('Session ID: ' . session_id());
+error_log('Session data: ' . print_r($_SESSION, true));
+
 // 检查config.php是否存在
 if (!file_exists('../config.php')) {
+    error_log('Config file not found');
     echo json_encode(['success' => false, 'message' => '系统配置文件不存在，请重新安装系统']);
     exit;
 }
 
 require_once '../config.php';
+
+// 检查auth-functions.php是否存在
+if (!file_exists('auth-functions.php')) {
+    error_log('Auth functions file not found');
+    echo json_encode(['success' => false, 'message' => '认证模块不存在']);
+    exit;
+}
+
 require_once 'auth-functions.php';
 
-// 检查管理员权限
-function checkAdminAuth() {
-    $authResult = requireAdmin();
-    if (!$authResult['success']) {
-        // 返回错误而不是直接退出，让调用者处理
-        return $authResult;
-    }
-    return ['success' => true];
-}
-
-// 获取数据库连接
-function getConnection() {
-    try {
-        // 检查数据库配置常量是否存在
-        if (!defined('DB_HOST') || !defined('DB_NAME') || !defined('DB_USER') || !defined('DB_PASS')) {
-            throw new Exception('数据库配置不完整');
-        }
-        
-        $port = defined('DB_PORT') ? DB_PORT : 3306;
-        $dsn = "mysql:host=" . DB_HOST . ";port=" . $port . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-        $pdo = new PDO($dsn, DB_USER, DB_PASS);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        return $pdo;
-    } catch (PDOException $e) {
-        error_log('Database connection error: ' . $e->getMessage());
-        throw new Exception('数据库连接失败: ' . $e->getMessage());
-    }
-}
+// 调试数据库常量
+error_log('DB_HOST: ' . (defined('DB_HOST') ? DB_HOST : 'undefined'));
+error_log('DB_NAME: ' . (defined('DB_NAME') ? DB_NAME : 'undefined'));
 
 // 获取用户列表
 function getUserList() {
-    $authResult = checkAdminAuth();
+    $authResult = requireAdmin();
     if (!$authResult['success']) {
         return $authResult;
     }
@@ -72,7 +61,7 @@ function getUserList() {
 
 // 添加用户
 function addUser($data) {
-    $authResult = checkAdminAuth();
+    $authResult = requireAdmin();
     if (!$authResult['success']) {
         return $authResult;
     }
@@ -114,7 +103,7 @@ function addUser($data) {
 
 // 更新用户
 function updateUser($id, $data) {
-    $authResult = checkAdminAuth();
+    $authResult = requireAdmin();
     if (!$authResult['success']) {
         return $authResult;
     }
@@ -202,7 +191,7 @@ function updateUser($id, $data) {
 
 // 删除用户
 function deleteUser($id) {
-    $authResult = checkAdminAuth();
+    $authResult = requireAdmin();
     if (!$authResult['success']) {
         return $authResult;
     }
@@ -223,12 +212,144 @@ function deleteUser($id) {
     return ['success' => true, 'message' => '用户删除成功'];
 }
 
+// 批量导入用户
+function batchImportUsers($filePath) {
+    $authResult = requireAdmin();
+    if (!$authResult['success']) {
+        return $authResult;
+    }
+    
+    // 检查文件是否存在
+    if (!file_exists($filePath)) {
+        return ['success' => false, 'message' => '文件不存在'];
+    }
+    
+    // 读取CSV文件
+    $csvData = [];
+    $handle = fopen($filePath, 'r');
+    if ($handle === FALSE) {
+        return ['success' => false, 'message' => '无法读取文件'];
+    }
+    
+    // 读取表头
+    $headers = fgetcsv($handle);
+    if ($headers === FALSE) {
+        fclose($handle);
+        return ['success' => false, 'message' => '文件格式错误'];
+    }
+    
+    // 验证表头格式
+    $expectedHeaders = ['用户名', '密码', '用户类型', '真实姓名', '邮箱', '手机号', '学号', '班级', '专业'];
+    if (count($headers) < 3 || trim($headers[0]) !== '用户名' || trim($headers[1]) !== '密码' || trim($headers[2]) !== '用户类型') {
+        fclose($handle);
+        return ['success' => false, 'message' => '文件格式错误，请确保前三列为：用户名、密码、用户类型'];
+    }
+    
+    // 读取数据行
+    $lineNumber = 1;
+    $successCount = 0;
+    $errorCount = 0;
+    $errors = [];
+    
+    while (($row = fgetcsv($handle)) !== FALSE) {
+        $lineNumber++;
+        
+        // 跳过空行
+        if (empty(array_filter($row))) {
+            continue;
+        }
+        
+        // 确保至少有基本字段
+        if (count($row) < 3) {
+            $errors[] = "第{$lineNumber}行：数据不完整";
+            $errorCount++;
+            continue;
+        }
+        
+        $userData = [
+            'username' => trim($row[0]),
+            'password' => trim($row[1]),
+            'type' => trim($row[2]),
+            'real_name' => isset($row[3]) ? trim($row[3]) : null,
+            'email' => isset($row[4]) ? trim($row[4]) : null,
+            'phone' => isset($row[5]) ? trim($row[5]) : null,
+            'student_id' => isset($row[6]) ? trim($row[6]) : null,
+            'class' => isset($row[7]) ? trim($row[7]) : null,
+            'major' => isset($row[8]) ? trim($row[8]) : null
+        ];
+        
+        // 验证必填字段
+        if (empty($userData['username']) || empty($userData['password']) || empty($userData['type'])) {
+            $errors[] = "第{$lineNumber}行：用户名、密码、用户类型不能为空";
+            $errorCount++;
+            continue;
+        }
+        
+        // 验证用户类型
+        if (!in_array($userData['type'], ['student', 'admin'])) {
+            $errors[] = "第{$lineNumber}行：用户类型必须为student或admin";
+            $errorCount++;
+            continue;
+        }
+        
+        // 验证邮箱格式
+        if (!empty($userData['email']) && !filter_var($userData['email'], FILTER_VALIDATE_EMAIL)) {
+            $errors[] = "第{$lineNumber}行：邮箱格式不正确";
+            $errorCount++;
+            continue;
+        }
+        
+        // 尝试添加用户
+        $result = addUser($userData);
+        if ($result['success']) {
+            $successCount++;
+        } else {
+            $errors[] = "第{$lineNumber}行：{$result['message']}";
+            $errorCount++;
+        }
+    }
+    
+    fclose($handle);
+    
+    // 删除临时文件
+    unlink($filePath);
+    
+    $message = "导入完成：成功{$successCount}条，失败{$errorCount}条";
+    if ($errorCount > 0) {
+        $message .= "。错误详情：\n" . implode("\n", array_slice($errors, 0, 10));
+        if (count($errors) > 10) {
+            $message .= "\n...（省略其他错误）";
+        }
+    }
+    
+    return [
+        'success' => true,
+        'message' => $message,
+        'total' => $successCount + $errorCount,
+        'success_count' => $successCount,
+        'error_count' => $errorCount,
+        'errors' => $errors
+    ];
+}
+
 // 处理请求
 try {
-    $action = $_GET['action'] ?? $_POST['action'] ?? '';
+    // 处理JSON请求体
+    $json_input = file_get_contents('php://input');
+    $json_data = [];
+    if (!empty($json_input)) {
+        $json_data = json_decode($json_input, true) ?? [];
+        error_log('JSON input: ' . $json_input);
+        error_log('JSON data: ' . print_r($json_data, true));
+    }
+    
+    $action = $_GET['action'] ?? $_POST['action'] ?? $json_data['action'] ?? '';
     
     // 调试信息
     error_log('Users API called with action: ' . $action);
+    error_log('GET data: ' . print_r($_GET, true));
+    error_log('POST data: ' . print_r($_POST, true));
+    error_log('JSON data: ' . print_r($json_data, true));
     error_log('Session data: ' . print_r($_SESSION, true));
     
     switch ($action) {
@@ -238,16 +359,18 @@ try {
             break;
             
         case 'add':
+            // 合并POST和JSON数据
+            $all_data = array_merge($_POST, $json_data);
             $data = [
-                'username' => $_POST['username'] ?? '',
-                'password' => $_POST['password'] ?? '',
-                'type' => $_POST['type'] ?? '',
-                'real_name' => $_POST['real_name'] ?? null,
-                'email' => $_POST['email'] ?? null,
-                'phone' => $_POST['phone'] ?? null,
-                'student_id' => $_POST['student_id'] ?? null,
-                'class' => $_POST['class'] ?? null,
-                'major' => $_POST['major'] ?? null
+                'username' => $all_data['username'] ?? '',
+                'password' => $all_data['password'] ?? '',
+                'type' => $all_data['type'] ?? '',
+                'real_name' => $all_data['real_name'] ?? null,
+                'email' => $all_data['email'] ?? null,
+                'phone' => $all_data['phone'] ?? null,
+                'student_id' => $all_data['student_id'] ?? null,
+                'class' => $all_data['class'] ?? null,
+                'major' => $all_data['major'] ?? null
             ];
             
             // 调试信息
@@ -265,22 +388,24 @@ try {
             break;
             
         case 'update':
-            $id = $_POST['id'] ?? $_GET['id'] ?? '';
+            // 合并所有数据源
+            $all_data = array_merge($_POST, $_GET, $json_data);
+            $id = $all_data['id'] ?? '';
             if (empty($id)) {
                 echo json_encode(['success' => false, 'message' => '用户ID不能为空']);
                 break;
             }
             
             $data = [
-                'username' => $_POST['username'] ?? null,
-                'password' => $_POST['password'] ?? null,
-                'type' => $_POST['type'] ?? null,
-                'real_name' => $_POST['real_name'] ?? null,
-                'email' => $_POST['email'] ?? null,
-                'phone' => $_POST['phone'] ?? null,
-                'student_id' => $_POST['student_id'] ?? null,
-                'class' => $_POST['class'] ?? null,
-                'major' => $_POST['major'] ?? null
+                'username' => $all_data['username'] ?? null,
+                'password' => $all_data['password'] ?? null,
+                'type' => $all_data['type'] ?? null,
+                'real_name' => $all_data['real_name'] ?? null,
+                'email' => $all_data['email'] ?? null,
+                'phone' => $all_data['phone'] ?? null,
+                'student_id' => $all_data['student_id'] ?? null,
+                'class' => $all_data['class'] ?? null,
+                'major' => $all_data['major'] ?? null
             ];
             
             $result = updateUser($id, $data);
@@ -288,7 +413,9 @@ try {
             break;
             
         case 'delete':
-            $id = $_POST['id'] ?? $_GET['id'] ?? '';
+            // 合并所有数据源
+            $all_data = array_merge($_POST, $_GET, $json_data);
+            $id = $all_data['id'] ?? '';
             if (empty($id)) {
                 echo json_encode(['success' => false, 'message' => '用户ID不能为空']);
                 break;
@@ -298,8 +425,66 @@ try {
             echo json_encode($result);
             break;
             
+        case 'batch_import':
+            // 处理文件上传
+            if (!isset($_FILES['import_file']) || $_FILES['import_file']['error'] !== UPLOAD_ERR_OK) {
+                echo json_encode(['success' => false, 'message' => '请选择要导入的CSV文件']);
+                break;
+            }
+            
+            $uploadedFile = $_FILES['import_file'];
+            
+            // 验证文件类型
+            $fileExtension = strtolower(pathinfo($uploadedFile['name'], PATHINFO_EXTENSION));
+            if (!in_array($fileExtension, ['csv'])) {
+                echo json_encode(['success' => false, 'message' => '只支持CSV格式文件']);
+                break;
+            }
+            
+            // 验证文件大小（最大5MB）
+            if ($uploadedFile['size'] > 5 * 1024 * 1024) {
+                echo json_encode(['success' => false, 'message' => '文件大小不能超过5MB']);
+                break;
+            }
+            
+            // 移动文件到临时目录
+            $tempDir = '../uploads/temp/';
+            if (!is_dir($tempDir)) {
+                mkdir($tempDir, 0755, true);
+            }
+            
+            $tempFileName = $tempDir . 'import_' . time() . '_' . uniqid() . '.csv';
+            if (!move_uploaded_file($uploadedFile['tmp_name'], $tempFileName)) {
+                echo json_encode(['success' => false, 'message' => '文件上传失败']);
+                break;
+            }
+            
+            // 执行批量导入
+            $result = batchImportUsers($tempFileName);
+            echo json_encode($result);
+            break;
+            
+        case 'download_template':
+            // 下载模板文件
+            $templatePath = '../excel/用户批量导入模板.csv';
+            if (!file_exists($templatePath)) {
+                echo json_encode(['success' => false, 'message' => '模板文件不存在']);
+                break;
+            }
+            
+            // 设置下载头
+            header('Content-Type: text/csv; charset=UTF-8');
+            header('Content-Disposition: attachment; filename="用户批量导入模板.csv"');
+            header('Content-Length: ' . filesize($templatePath));
+            
+            // 输出BOM以支持Excel正确显示中文
+            echo "\xEF\xBB\xBF";
+            readfile($templatePath);
+            exit;
+            break;
+            
         default:
-            echo json_encode(['success' => false, 'message' => '未知操作']);
+            echo json_encode(['success' => false, 'message' => '未知操作: ' . $action]);
             break;
     }
 } catch (Exception $e) {
