@@ -540,6 +540,33 @@
                             <!-- 排名表格将在这里显示 -->
                         </div>
                     </div>
+                    
+                    <!-- 学生申请统计 -->
+                    <div class="card glass" style="margin-top: 30px;">
+                        <div class="card-title">
+                            <div class="card-icon">📈</div>
+                            学生申请统计
+                        </div>
+                        <div class="stats-controls" style="margin-bottom: 20px;">
+                            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label class="form-label">筛选批次</label>
+                                    <select id="statsBatchSelect" class="form-select" onchange="loadStudentStats()" style="max-width: 200px;">
+                                        <option value="">全部批次</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label class="form-label">筛选班级</label>
+                                    <select id="statsClassSelect" class="form-select" onchange="loadStudentStats()" style="max-width: 200px;">
+                                        <option value="">全部班级</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="statsContainer">
+                            <!-- 统计数据将在这里显示 -->
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -550,6 +577,17 @@
                         <div class="card-title">
                             <div class="card-icon">👁️</div>
                             学生申请审核
+                        </div>
+                        <div class="audit-controls" style="margin-bottom: 20px;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">审核状态筛选</label>
+                                <select id="auditStatusFilter" class="form-select" onchange="filterApplicationsByStatus()" style="max-width: 200px;">
+                                    <option value="">全部申请</option>
+                                    <option value="pending">待审核</option>
+                                    <option value="approved">已通过</option>
+                                    <option value="rejected">已驳回</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="student-materials" id="studentMaterials">
                             <!-- 学生材料将在这里动态生成 -->

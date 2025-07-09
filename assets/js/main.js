@@ -2329,12 +2329,16 @@ function renderItemsList() {
 }
 
 // 材料审核
-async function renderStudentMaterials() {
+async function renderStudentMaterials(status = null) {
     const container = document.getElementById('studentMaterials');
     container.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 20px;">加载中... </div>';
     
     try {
-        const response = await ApiClient.get('api/applications.php?action=get_all');
+        let url = 'api/applications.php?action=get_all';
+        if (status) {
+            url += `&status=${status}`;
+        }
+        const response = await ApiClient.get(url);
         
         if (response.success && response.data && response.data.length > 0) {
             container.innerHTML = '';
@@ -2391,6 +2395,15 @@ async function renderStudentMaterials() {
     }
 }
 
+// 根据状态筛选申请
+function filterApplicationsByStatus() {
+    const statusFilter = document.getElementById('auditStatusFilter');
+    const selectedStatus = statusFilter.value;
+    
+    // 重新渲染材料列表，传入选中的状态
+    renderStudentMaterials(selectedStatus);
+}
+
 async function reviewApplication(applicationId, status) {
     const comment = prompt(status === 'approved' ? '请输入通过理由（可选）:' : '请输入驳回理由');
     
@@ -2416,7 +2429,10 @@ async function reviewApplication(applicationId, status) {
         
         if (data.success) {
             alert(`申请${status === 'approved' ? '通过' : '驳回'}！`);
-            renderStudentMaterials();
+            // 保持当前筛选状态
+            const statusFilter = document.getElementById('auditStatusFilter');
+            const currentStatus = statusFilter ? statusFilter.value : null;
+            renderStudentMaterials(currentStatus);
         } else {
             throw new Error(data.message || '审核失败');
         }
@@ -2444,7 +2460,10 @@ async function requestModification(applicationId) {
         
         if (response.success) {
             alert('修改要求已发送给学生');
-            renderStudentMaterials();
+            // 保持当前筛选状态
+            const statusFilter = document.getElementById('auditStatusFilter');
+            const currentStatus = statusFilter ? statusFilter.value : null;
+            renderStudentMaterials(currentStatus);
         } else {
             throw new Error(response.message || '操作失败');
         }
@@ -2468,7 +2487,10 @@ async function deleteApplicationConfirm(applicationId, userName) {
         
         if (response.success) {
             alert('申请删除成功！');
-            renderStudentMaterials();
+            // 保持当前筛选状态
+            const statusFilter = document.getElementById('auditStatusFilter');
+            const currentStatus = statusFilter ? statusFilter.value : null;
+            renderStudentMaterials(currentStatus);
         } else {
             throw new Error(response.message || '删除失败');
         }
@@ -3386,6 +3408,9 @@ async function initRankingTab() {
                 rankingBatchSelect.appendChild(option);
             });
         }
+        
+        // 初始化统计模块
+        await initStudentStatsModule();
     } catch (error) {
         console.error('Init ranking tab error:', error);
         // 如果加载失败，至少提供一个错误提示
@@ -3394,6 +3419,251 @@ async function initRankingTab() {
             rankingBatchSelect.innerHTML = '<option value="">加载批次失败</option>';
         }
     }
+}
+
+// 初始化学生统计模块
+async function initStudentStatsModule() {
+    try {
+        // 加载初始统计数据
+        const response = await ApiClient.get('api/applications.php?action=student_stats');
+        
+        if (response.success) {
+            const { batches, classes } = response.data;
+            
+            // 填充批次选择器
+            const statsBatchSelect = document.getElementById('statsBatchSelect');
+            if (statsBatchSelect && batches) {
+                statsBatchSelect.innerHTML = '<option value="">全部批次</option>';
+                batches.forEach(batch => {
+                    const option = document.createElement('option');
+                    option.value = batch.id;
+                    option.textContent = batch.name;
+                    statsBatchSelect.appendChild(option);
+                });
+            }
+            
+            // 填充班级选择器
+            const statsClassSelect = document.getElementById('statsClassSelect');
+            if (statsClassSelect && classes) {
+                statsClassSelect.innerHTML = '<option value="">全部班级</option>';
+                classes.forEach(className => {
+                    const option = document.createElement('option');
+                    option.value = className;
+                    option.textContent = className;
+                    statsClassSelect.appendChild(option);
+                });
+            }
+            
+            // 渲染初始统计数据
+            renderStudentStats(response.data);
+        }
+    } catch (error) {
+        console.error('Init student stats module error:', error);
+        const statsContainer = document.getElementById('statsContainer');
+        if (statsContainer) {
+            statsContainer.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 20px;">加载统计数据失败</div>';
+        }
+    }
+}
+
+// 加载学生统计数据
+async function loadStudentStats() {
+    const statsBatchSelect = document.getElementById('statsBatchSelect');
+    const statsClassSelect = document.getElementById('statsClassSelect');
+    const statsContainer = document.getElementById('statsContainer');
+    
+    const batchId = statsBatchSelect.value;
+    const className = statsClassSelect.value;
+    
+    try {
+        statsContainer.innerHTML = '<div style="color: rgba(255, 255, 255, 0.7); text-align: center; padding: 20px;">加载中...</div>';
+        
+        let url = 'api/applications.php?action=student_stats';
+        if (batchId) url += `&batch_id=${batchId}`;
+        if (className) url += `&class=${encodeURIComponent(className)}`;
+        
+        const response = await ApiClient.get(url);
+        
+        if (response.success) {
+            renderStudentStats(response.data);
+        } else {
+            throw new Error(response.message || '获取统计数据失败');
+        }
+    } catch (error) {
+        console.error('Load student stats error:', error);
+        statsContainer.innerHTML = `<div style="color: #ff6b6b; text-align: center; padding: 20px;">加载失败: ${error.message}</div>`;
+    }
+}
+
+// 渲染学生统计数据
+function renderStudentStats(data) {
+    const statsContainer = document.getElementById('statsContainer');
+    const { students, stats } = data;
+    
+    if (!students || students.length === 0) {
+        statsContainer.innerHTML = `
+            <div style="text-align: center; padding: 40px; color: rgba(255, 255, 255, 0.7);">
+                <div style="font-size: 48px; margin-bottom: 20px;">📊</div>
+                <h3>暂无学生数据</h3>
+                <p>当前筛选条件下没有找到学生</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // 渲染统计概览
+    let statsHtml = `
+        <div style="margin-bottom: 30px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; text-align: center;">
+                    <div style="color: white; font-size: 24px; font-weight: bold; margin-bottom: 5px;">${stats.total_students}</div>
+                    <div style="color: rgba(255, 255, 255, 0.8); font-size: 14px;">学生总数</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 20px; border-radius: 12px; text-align: center;">
+                    <div style="color: white; font-size: 24px; font-weight: bold; margin-bottom: 5px;">${stats.submitted_students}</div>
+                    <div style="color: rgba(255, 255, 255, 0.8); font-size: 14px;">已提交申请</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 20px; border-radius: 12px; text-align: center;">
+                    <div style="color: white; font-size: 24px; font-weight: bold; margin-bottom: 5px;">${stats.not_submitted_students}</div>
+                    <div style="color: rgba(255, 255, 255, 0.8); font-size: 14px;">未提交申请</div>
+                </div>
+                <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 20px; border-radius: 12px; text-align: center;">
+                    <div style="color: white; font-size: 24px; font-weight: bold; margin-bottom: 5px;">${((stats.submitted_students / stats.total_students) * 100).toFixed(1)}%</div>
+                    <div style="color: rgba(255, 255, 255, 0.8); font-size: 14px;">提交率</div>
+                </div>
+            </div>
+    `;
+    
+    // 按班级统计
+    if (Object.keys(stats.by_class).length > 1) {
+        statsHtml += `
+            <div style="background: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                <h4 style="color: white; margin: 0 0 15px 0; font-size: 16px;">📊 班级统计</h4>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: rgba(255, 255, 255, 0.1);">
+                                <th style="padding: 10px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">班级</th>
+                                <th style="padding: 10px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">总人数</th>
+                                <th style="padding: 10px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">已提交</th>
+                                <th style="padding: 10px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">未提交</th>
+                                <th style="padding: 10px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">提交率</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+        
+        Object.keys(stats.by_class).sort().forEach((className, index) => {
+            const classData = stats.by_class[className];
+            const submissionRate = ((classData.submitted / classData.total) * 100).toFixed(1);
+            const rowStyle = index % 2 === 0 ? 'background: rgba(255, 255, 255, 0.05);' : '';
+            
+            statsHtml += `
+                <tr style="${rowStyle}">
+                    <td style="padding: 10px; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${className}</td>
+                    <td style="padding: 10px; text-align: center; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${classData.total}</td>
+                    <td style="padding: 10px; text-align: center; color: #22c55e; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${classData.submitted}</td>
+                    <td style="padding: 10px; text-align: center; color: #ef4444; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${classData.not_submitted}</td>
+                    <td style="padding: 10px; text-align: center; color: #3b82f6; font-weight: bold; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">${submissionRate}%</td>
+                </tr>
+            `;
+        });
+        
+        statsHtml += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+    
+    statsHtml += '</div>';
+    
+    // 渲染学生详细列表
+    statsHtml += `
+        <div style="background: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 12px;">
+            <h4 style="color: white; margin: 0 0 15px 0; font-size: 16px;">👥 学生详细列表</h4>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: rgba(255, 255, 255, 0.1);">
+                            <th style="padding: 12px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">姓名</th>
+                            <th style="padding: 12px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">学号</th>
+                            <th style="padding: 12px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">班级</th>
+                            <th style="padding: 12px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">专业</th>
+                            <th style="padding: 12px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">申请状态</th>
+                            <th style="padding: 12px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">审核状态</th>
+                            <th style="padding: 12px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">总分</th>
+                            <th style="padding: 12px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">提交时间</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    `;
+    
+    students.forEach((student, index) => {
+        const rowStyle = index % 2 === 0 ? 'background: rgba(255, 255, 255, 0.05);' : '';
+        
+        // 申请状态
+        const submissionStatus = student.submission_status === 'submitted' ? 
+            '<span style="color: #22c55e; font-weight: bold;">✓ 已提交</span>' : 
+            '<span style="color: #ef4444; font-weight: bold;">✗ 未提交</span>';
+        
+        // 审核状态
+        let reviewStatus = '-';
+        if (student.submission_status === 'submitted') {
+            const statusMap = {
+                'pending': '<span style="color: #f59e0b;">⏳ 待审核</span>',
+                'approved': '<span style="color: #22c55e;">✓ 已通过</span>',
+                'rejected': '<span style="color: #ef4444;">✗ 已驳回</span>'
+            };
+            reviewStatus = statusMap[student.application_status] || '<span style="color: #6b7280;">未知</span>';
+        }
+        
+        // 总分
+        const totalScore = student.total_score ? parseFloat(student.total_score).toFixed(1) : '-';
+        
+        // 提交时间
+        const submittedTime = student.submitted_at ? 
+            new Date(student.submitted_at).toLocaleDateString('zh-CN') : '-';
+        
+        statsHtml += `
+            <tr style="${rowStyle}">
+                <td style="padding: 12px; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${student.real_name || student.username}
+                </td>
+                <td style="padding: 12px; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${student.student_id || '-'}
+                </td>
+                <td style="padding: 12px; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${student.class || '-'}
+                </td>
+                <td style="padding: 12px; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${student.major || '-'}
+                </td>
+                <td style="padding: 12px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${submissionStatus}
+                </td>
+                <td style="padding: 12px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${reviewStatus}
+                </td>
+                <td style="padding: 12px; text-align: center; color: #4ecdc4; font-weight: bold; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${totalScore}
+                </td>
+                <td style="padding: 12px; text-align: center; color: rgba(255, 255, 255, 0.6); font-size: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${submittedTime}
+                </td>
+            </tr>
+        `;
+    });
+    
+    statsHtml += `
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    
+    statsContainer.innerHTML = statsHtml;
 }
 
 async function loadBatchRanking() {

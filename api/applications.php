@@ -105,7 +105,7 @@ function getApplicationDetail($id, $userId = null) {
 }
 
 // 获取所有申请（管理员）
-function getAllApplications() {
+function getAllApplications($status = null) {
     $authResult = requireAdmin();
     if (!$authResult['success']) {
         return $authResult;
@@ -113,14 +113,26 @@ function getAllApplications() {
     
     $pdo = getConnection();
     
-    $stmt = $pdo->prepare("
-        SELECT a.*, b.name as batch_name, u.real_name as user_name
+    // 构建基础SQL查询
+    $sql = "
+        SELECT a.*, b.name as batch_name, u.real_name as user_name, u.class, u.student_id
         FROM applications a 
         LEFT JOIN batches b ON a.batch_id = b.id 
         LEFT JOIN users u ON a.user_id = u.id
-        ORDER BY a.submitted_at DESC
-    ");
-    $stmt->execute();
+    ";
+    
+    $params = [];
+    
+    // 如果有状态筛选条件
+    if ($status && in_array($status, ['pending', 'approved', 'rejected'])) {
+        $sql .= " WHERE a.status = ?";
+        $params[] = $status;
+    }
+    
+    $sql .= " ORDER BY a.submitted_at DESC";
+    
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // 获取每个申请的材料统计
@@ -393,6 +405,114 @@ function getStats() {
     return ['success' => true, 'data' => $stats];
 }
 
+// 获取学生申请统计数据
+function getStudentApplicationStats($batchId = null, $class = null) {
+    $authResult = requireAdmin();
+    if (!$authResult['success']) {
+        return $authResult;
+    }
+    
+    $pdo = getConnection();
+    
+    try {
+        // 构建基础查询 - 获取所有学生用户
+        $sql = "
+            SELECT 
+                u.id,
+                u.username,
+                u.real_name,
+                u.student_id,
+                u.class,
+                u.major,
+                CASE WHEN a.id IS NOT NULL THEN 'submitted' ELSE 'not_submitted' END as submission_status,
+                a.status as application_status,
+                a.total_score,
+                a.submitted_at,
+                b.name as batch_name
+            FROM users u
+            LEFT JOIN applications a ON u.id = a.user_id" . ($batchId ? " AND a.batch_id = ?" : "") . "
+            LEFT JOIN batches b ON a.batch_id = b.id
+            WHERE u.type = 'student'
+        ";
+        
+        $params = [];
+        
+        // 添加批次筛选
+        if ($batchId) {
+            $params[] = $batchId;
+        }
+        
+        // 添加班级筛选
+        if ($class) {
+            $sql .= " AND u.class = ?";
+            $params[] = $class;
+        }
+        
+        $sql .= " ORDER BY u.class, u.student_id, u.real_name";
+        
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 获取所有班级列表（用于筛选）
+        $stmt = $pdo->prepare("SELECT DISTINCT class FROM users WHERE type = 'student' AND class IS NOT NULL ORDER BY class");
+        $stmt->execute();
+        $classes = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        // 获取所有批次列表（用于筛选）
+        $stmt = $pdo->prepare("SELECT id, name FROM batches ORDER BY created_at DESC");
+        $stmt->execute();
+        $batches = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 计算统计数据
+        $stats = [
+            'total_students' => 0,
+            'submitted_students' => 0,
+            'not_submitted_students' => 0,
+            'by_class' => []
+        ];
+        
+        $classCounts = [];
+        
+        foreach ($students as $student) {
+            $stats['total_students']++;
+            
+            $class = $student['class'] ?: '未分班';
+            if (!isset($classCounts[$class])) {
+                $classCounts[$class] = [
+                    'total' => 0,
+                    'submitted' => 0,
+                    'not_submitted' => 0
+                ];
+            }
+            $classCounts[$class]['total']++;
+            
+            if ($student['submission_status'] === 'submitted') {
+                $stats['submitted_students']++;
+                $classCounts[$class]['submitted']++;
+            } else {
+                $stats['not_submitted_students']++;
+                $classCounts[$class]['not_submitted']++;
+            }
+        }
+        
+        $stats['by_class'] = $classCounts;
+        
+        return [
+            'success' => true, 
+            'data' => [
+                'students' => $students,
+                'stats' => $stats,
+                'classes' => $classes,
+                'batches' => $batches
+            ]
+        ];
+        
+    } catch (Exception $e) {
+        return ['success' => false, 'message' => '获取统计数据失败: ' . $e->getMessage()];
+    }
+}
+
 // 添加批次
 function addBatch($name, $description, $startDate, $endDate, $status) {
     $authResult = requireAdmin();
@@ -582,7 +702,8 @@ try {
             
         case 'get_all':
         case 'getAllApplications':
-            $result = getAllApplications();
+            $status = $_GET['status'] ?? $_POST['status'] ?? null;
+            $result = getAllApplications($status);
             echo json_encode($result);
             break;
             
@@ -642,6 +763,14 @@ try {
             
         case 'stats':
             $result = getStats();
+            echo json_encode($result);
+            break;
+            
+        case 'student_stats':
+        case 'getStudentStats':
+            $batchId = $_GET['batch_id'] ?? $_POST['batch_id'] ?? null;
+            $class = $_GET['class'] ?? $_POST['class'] ?? null;
+            $result = getStudentApplicationStats($batchId, $class);
             echo json_encode($result);
             break;
             
