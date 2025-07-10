@@ -83,7 +83,7 @@ function getCategoriesWithItems() {
 }
 
 // 创建类目
-function createCategory($name, $score, $description = '') {
+function createCategory($name, $score, $description = '', $maxScoreLimit = 0) {
     $authResult = requireAdmin();
     if (!$authResult['success']) {
         return $authResult;
@@ -91,14 +91,14 @@ function createCategory($name, $score, $description = '') {
     
     $pdo = getConnection();
     
-    $stmt = $pdo->prepare("INSERT INTO categories (name, score, description) VALUES (?, ?, ?)");
-    $stmt->execute([$name, $score, $description]);
+    $stmt = $pdo->prepare("INSERT INTO categories (name, score, max_score_limit, description) VALUES (?, ?, ?, ?)");
+    $stmt->execute([$name, $score, $maxScoreLimit, $description]);
     
     return ['success' => true, 'message' => '类目创建成功', 'id' => $pdo->lastInsertId()];
 }
 
 // 更新类目
-function updateCategory($id, $name, $score, $description = '') {
+function updateCategory($id, $name, $score, $description = '', $maxScoreLimit = 0) {
     $authResult = requireAdmin();
     if (!$authResult['success']) {
         return $authResult;
@@ -106,8 +106,8 @@ function updateCategory($id, $name, $score, $description = '') {
     
     $pdo = getConnection();
     
-    $stmt = $pdo->prepare("UPDATE categories SET name = ?, score = ?, description = ? WHERE id = ?");
-    $stmt->execute([$name, $score, $description, $id]);
+    $stmt = $pdo->prepare("UPDATE categories SET name = ?, score = ?, max_score_limit = ?, description = ? WHERE id = ?");
+    $stmt->execute([$name, $score, $maxScoreLimit, $description, $id]);
     
     return ['success' => true, 'message' => '类目更新成功'];
 }
@@ -237,13 +237,14 @@ try {
             $name = $requestData['name'] ?? $_POST['name'] ?? '';
             $score = $requestData['score'] ?? $_POST['score'] ?? 0;
             $description = $requestData['description'] ?? $_POST['description'] ?? '';
+            $maxScoreLimit = $requestData['max_score_limit'] ?? $_POST['max_score_limit'] ?? 0;
             
             if (empty($name)) {
                 echo json_encode(['success' => false, 'message' => '类目名称不能为空']);
                 break;
             }
             
-            $result = createCategory($name, $score, $description);
+            $result = createCategory($name, $score, $description, $maxScoreLimit);
             echo json_encode($result);
             break;
             
@@ -252,13 +253,14 @@ try {
             $name = $requestData['name'] ?? $_POST['name'] ?? '';
             $score = $requestData['score'] ?? $_POST['score'] ?? 0;
             $description = $requestData['description'] ?? $_POST['description'] ?? '';
+            $maxScoreLimit = $requestData['max_score_limit'] ?? $_POST['max_score_limit'] ?? 0;
             
             if (!$id || empty($name)) {
                 echo json_encode(['success' => false, 'message' => '参数不完整']);
                 break;
             }
             
-            $result = updateCategory($id, $name, $score, $description);
+            $result = updateCategory($id, $name, $score, $description, $maxScoreLimit);
             echo json_encode($result);
             break;
             

@@ -757,16 +757,98 @@ async function viewApplication(applicationId) {
             
             if (application.materials && application.materials.length > 0) {
                 const materialsByCategory = {};
-                application.materials.forEach(material => {
-                    if (!materialsByCategory[material.category_name]) {
-                        materialsByCategory[material.category_name] = [];
+                console.log('Application materials:', application.materials);
+                
+                // 🔥 关键修复：确保类目数据已加载
+                if (!categories || categories.length === 0) {
+                    await DataManager.loadCategories();
+                }
+                
+                // 添加额外的调试信息
+                console.log('📊 Raw materials data from API:', application.materials);
+                
+                // 检查是否有重复的材料ID
+                const materialIds = application.materials.map(m => m.id);
+                const uniqueMaterialIds = [...new Set(materialIds)];
+                if (materialIds.length !== uniqueMaterialIds.length) {
+                    console.error('⚠️ DUPLICATE MATERIAL IDs DETECTED IN API RESPONSE!');
+                    console.error('All material IDs:', materialIds);
+                    console.error('Unique material IDs:', uniqueMaterialIds);
+                    
+                    // 找出重复的ID
+                    const duplicates = materialIds.filter((id, index) => materialIds.indexOf(id) !== index);
+                    console.error('Duplicate IDs:', [...new Set(duplicates)]);
+                } else {
+                    console.log('✅ No duplicate material IDs found in API response');
+                }
+                
+                application.materials.forEach((material, index) => {
+                    console.log(`Processing material ${index + 1}:`, {
+                        id: material.id,
+                        category_id: material.category_id,
+                        category_name: material.category_name,
+                        item_name: material.item_name,
+                        score: material.score
+                    });
+                    
+                    // 🔥 修复：如果category_name为空，通过category_id查找
+                    let categoryName = material.category_name;
+                    if (!categoryName && material.category_id) {
+                        const category = categories.find(c => c.id == material.category_id);
+                        if (category) {
+                            categoryName = category.name;
+                            console.log(`Fixed missing category_name for material ${material.id}: ${categoryName}`);
+                        } else {
+                            console.error(`Cannot find category with ID ${material.category_id} for material ${material.id}`);
+                            categoryName = `未知类目(ID:${material.category_id})`;
+                        }
                     }
-                    materialsByCategory[material.category_name].push(material);
+                    
+                    if (!categoryName) {
+                        console.error('Material has no category_name and cannot be resolved:', material);
+                        categoryName = `未知类目(ID:${material.category_id || 'unknown'})`;
+                    }
+                    
+                    if (!materialsByCategory[categoryName]) {
+                        materialsByCategory[categoryName] = [];
+                    }
+                    materialsByCategory[categoryName].push(material);
+                });
+                
+                console.log('Materials grouped by category:', materialsByCategory);
+                
+                // 检查分组后的统计信息
+                Object.keys(materialsByCategory).forEach(categoryName => {
+                    const categoryMaterials = materialsByCategory[categoryName];
+                    console.log(`📂 Category "${categoryName}": ${categoryMaterials.length} materials`);
+                    categoryMaterials.forEach((mat, idx) => {
+                        console.log(`  ${idx + 1}. Material ID: ${mat.id}, Item: ${mat.item_name}`);
+                    });
                 });
                 
                 Object.keys(materialsByCategory).forEach(categoryName => {
                     const categoryItems = materialsByCategory[categoryName];
-                    const categoryScore = categoryItems.reduce((sum, item) => sum + parseFloat(item.score || 0), 0);
+                    
+                    // 使用后端计算的有效类目分数
+                    let categoryScore = categoryItems.reduce((sum, item) => sum + parseFloat(item.score || 0), 0);
+                    let scoreDisplayText = `${categoryScore}分`;
+                    
+                    // 如果有有效分数信息，显示详细的分数计算
+                    if (application.category_scores && application.category_scores[categoryName]) {
+                        const scoreInfo = application.category_scores[categoryName];
+                        const effectiveScore = scoreInfo.effective_score;
+                        const hasLimit = scoreInfo.has_limit;
+                        const ratio = scoreInfo.score_ratio;
+                        const contribution = scoreInfo.contribution;
+                        
+                        if (hasLimit && effectiveScore < categoryScore) {
+                            scoreDisplayText = `${effectiveScore}分 (原始${categoryScore}分，限100分上限)<br><small style="color: rgba(255,255,255,0.7);">占比${ratio}% → 贡献${contribution.toFixed(1)}分</small>`;
+                        } else {
+                            scoreDisplayText = `${effectiveScore}分<br><small style="color: rgba(255,255,255,0.7);">占比${ratio}% → 贡献${contribution.toFixed(1)}分</small>`;
+                        }
+                        
+                        categoryScore = effectiveScore; // 使用有效分数
+                    }
                     
                     let categoryItemsHtml = '';
                     categoryItems.forEach((material, index) => {
@@ -806,8 +888,8 @@ async function viewApplication(applicationId) {
                         <div style="margin-bottom: 25px;">
                             <h4 style="color: #ffffff; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 20px; font-weight: 700; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">
                                 <span>${categoryName}</span>
-                                <span style="color: #22c55e; font-size: 16px; background: rgba(34, 197, 94, 0.3); padding: 8px 16px; border-radius: 12px; font-weight: 700; border: 1px solid rgba(34, 197, 94, 0.4);">
-                                    ${categoryScore}分
+                                <span style="color: #22c55e; font-size: 16px; background: rgba(34, 197, 94, 0.3); padding: 8px 16px; border-radius: 12px; font-weight: 700; border: 1px solid rgba(34, 197, 94, 0.4); text-align: right; line-height: 1.3;">
+                                    ${scoreDisplayText}
                                 </span>
                             </h4>
                             ${categoryItemsHtml}
@@ -1665,7 +1747,7 @@ async function submitApplication() {
                     // 新申请：必须有文件
                     if (files.length > 0) {
                         applicationData.push({
-                            category_id: category.id,
+                            category_id: parseInt(category.id),
                             item_id: parseInt(itemSelect.value),
                             award_level: levelSelect.value,
                             award_grade: gradeSelect.value,
@@ -1691,7 +1773,7 @@ async function submitApplication() {
                     // 编辑申请：只要有选择项目就提交
                     // 对于编辑模式，即使没有文件也要提交（可能是只修改了级别/等级）
                     applicationData.push({
-                        category_id: category.id,
+                        category_id: parseInt(category.id),
                         item_id: parseInt(itemSelect.value),
                         award_level: levelSelect.value,
                         award_grade: gradeSelect.value,
@@ -2116,6 +2198,7 @@ function updateCategorySelect() {
 async function addCategory() {
     const name = document.getElementById('categoryName').value;
     const score = parseInt(document.getElementById('categoryScore').value);
+    const maxScoreLimit = document.getElementById('categoryMaxScore').checked ? 1 : 0;
     
     if (!name || !score) {
         alert('请填写完整信息！');
@@ -2126,12 +2209,14 @@ async function addCategory() {
         const response = await ApiClient.post('api/categories.php', {
             action: 'create',
             name: name,
-            score: score
+            score: score,
+            max_score_limit: maxScoreLimit
         });
         
         if (response.success) {
             document.getElementById('categoryName').value = '';
             document.getElementById('categoryScore').value = '';
+            document.getElementById('categoryMaxScore').checked = false;
             
             await DataManager.loadCategories();
             updateCategorySelect();
@@ -2178,10 +2263,11 @@ function renderCategoryList() {
     categories.forEach(category => {
         const categoryEl = document.createElement('div');
         categoryEl.className = 'category-item';
+        const maxScoreText = category.max_score_limit == 1 ? ' | 最高100分' : ' | 无上限';
         categoryEl.innerHTML = `
             <div>
                 <div style="color: white; font-weight: 500;">${category.name}</div>
-                <div style="color: rgba(255, 255, 255, 0.7); font-size: 12px;">分数: ${category.score}</div>
+                <div style="color: rgba(255, 255, 255, 0.7); font-size: 12px;">分数占比: ${category.score}${maxScoreText}</div>
             </div>
             <button class="btn-outline btn" onclick="removeCategory(${category.id})">删除</button>
         `;
@@ -2931,16 +3017,95 @@ async function viewApplicationDetail(applicationId) {
             
             if (application.materials && application.materials.length > 0) {
                 const materialsByCategory = {};
-                application.materials.forEach(material => {
-                    if (!materialsByCategory[material.category_name]) {
-                        materialsByCategory[material.category_name] = [];
+                
+                // 🔥 关键修复：确保类目数据已加载
+                if (!categories || categories.length === 0) {
+                    await DataManager.loadCategories();
+                }
+                
+                // 添加调试信息 (在viewApplicationDetail函数中)
+                console.log('📊 Raw materials data from API (viewApplicationDetail):', application.materials);
+                
+                // 检查是否有重复的材料ID
+                const materialIds = application.materials.map(m => m.id);
+                const uniqueMaterialIds = [...new Set(materialIds)];
+                if (materialIds.length !== uniqueMaterialIds.length) {
+                    console.error('⚠️ DUPLICATE MATERIAL IDs DETECTED IN API RESPONSE (viewApplicationDetail)!');
+                    console.error('All material IDs:', materialIds);
+                    console.error('Unique material IDs:', uniqueMaterialIds);
+                    
+                    // 找出重复的ID
+                    const duplicates = materialIds.filter((id, index) => materialIds.indexOf(id) !== index);
+                    console.error('Duplicate IDs:', [...new Set(duplicates)]);
+                } else {
+                    console.log('✅ No duplicate material IDs found in API response (viewApplicationDetail)');
+                }
+                
+                application.materials.forEach((material, index) => {
+                    console.log(`Processing material ${index + 1} (viewApplicationDetail):`, {
+                        id: material.id,
+                        category_id: material.category_id,
+                        category_name: material.category_name,
+                        item_name: material.item_name,
+                        score: material.score
+                    });
+                    // 🔥 修复：如果category_name为空，通过category_id查找
+                    let categoryName = material.category_name;
+                    if (!categoryName && material.category_id) {
+                        const category = categories.find(c => c.id == material.category_id);
+                        if (category) {
+                            categoryName = category.name;
+                            console.log(`Fixed missing category_name for material ${material.id}: ${categoryName}`);
+                        } else {
+                            console.error(`Cannot find category with ID ${material.category_id} for material ${material.id}`);
+                            categoryName = `未知类目(ID:${material.category_id})`;
+                        }
                     }
-                    materialsByCategory[material.category_name].push(material);
+                    
+                    if (!categoryName) {
+                        console.error('Material has no category_name and cannot be resolved:', material);
+                        categoryName = `未知类目(ID:${material.category_id || 'unknown'})`;
+                    }
+                    
+                    if (!materialsByCategory[categoryName]) {
+                        materialsByCategory[categoryName] = [];
+                    }
+                    materialsByCategory[categoryName].push(material);
+                });
+                
+                // 检查分组后的统计信息 (viewApplicationDetail)
+                console.log('Materials grouped by category (viewApplicationDetail):', materialsByCategory);
+                Object.keys(materialsByCategory).forEach(categoryName => {
+                    const categoryMaterials = materialsByCategory[categoryName];
+                    console.log(`📂 Category "${categoryName}" (viewApplicationDetail): ${categoryMaterials.length} materials`);
+                    categoryMaterials.forEach((mat, idx) => {
+                        console.log(`  ${idx + 1}. Material ID: ${mat.id}, Item: ${mat.item_name}`);
+                    });
                 });
                 
                 Object.keys(materialsByCategory).forEach(categoryName => {
                     const categoryItems = materialsByCategory[categoryName];
-                    const categoryScore = categoryItems.reduce((sum, item) => sum + parseFloat(item.score || 0), 0);
+                    
+                    // 使用后端计算的有效类目分数
+                    let categoryScore = categoryItems.reduce((sum, item) => sum + parseFloat(item.score || 0), 0);
+                    let scoreDisplayText = `${categoryScore}分`;
+                    
+                    // 如果有有效分数信息，显示详细的分数计算
+                    if (application.category_scores && application.category_scores[categoryName]) {
+                        const scoreInfo = application.category_scores[categoryName];
+                        const effectiveScore = scoreInfo.effective_score;
+                        const hasLimit = scoreInfo.has_limit;
+                        const ratio = scoreInfo.score_ratio;
+                        const contribution = scoreInfo.contribution;
+                        
+                        if (hasLimit && effectiveScore < categoryScore) {
+                            scoreDisplayText = `${effectiveScore}分 (原始${categoryScore}分，限100分上限)<br><small style="color: rgba(255,255,255,0.7);">占比${ratio}% → 贡献${contribution.toFixed(1)}分</small>`;
+                        } else {
+                            scoreDisplayText = `${effectiveScore}分<br><small style="color: rgba(255,255,255,0.7);">占比${ratio}% → 贡献${contribution.toFixed(1)}分</small>`;
+                        }
+                        
+                        categoryScore = effectiveScore; // 使用有效分数
+                    }
                     
                     let categoryItemsHtml = '';
                     categoryItems.forEach((material, index) => {
@@ -2980,8 +3145,8 @@ async function viewApplicationDetail(applicationId) {
                         <div style="margin-bottom: 25px;">
                             <h4 style="color: #ffffff; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 20px; font-weight: 700; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">
                                 <span>${categoryName}</span>
-                                <span style="color: #22c55e; font-size: 16px; background: rgba(34, 197, 94, 0.3); padding: 8px 16px; border-radius: 12px; font-weight: 700; border: 1px solid rgba(34, 197, 94, 0.4);">
-                                    ${categoryScore}分
+                                <span style="color: #22c55e; font-size: 16px; background: rgba(34, 197, 94, 0.3); padding: 8px 16px; border-radius: 12px; font-weight: 700; border: 1px solid rgba(34, 197, 94, 0.4); text-align: right; line-height: 1.3;">
+                                    ${scoreDisplayText}
                                 </span>
                             </h4>
                             ${categoryItemsHtml}
@@ -3742,7 +3907,7 @@ function renderRankingTable(data) {
     `;
     
     rankings.forEach((ranking, index) => {
-        // 计算各类目分数
+        // 使用后端计算的有效类目分数（考虑上限和折算）
         const categoryScores = {
             '德育': 0,
             '能力': 0,
@@ -3750,16 +3915,27 @@ function renderRankingTable(data) {
             '其他材料': 0
         };
         
-        Object.keys(ranking.materials).forEach(categoryName => {
-            const materials = ranking.materials[categoryName];
-            let categoryScore = 0;
-            materials.forEach(material => {
-                categoryScore += parseFloat(material.score || 0);
+        // 优先使用后端计算的有效分数
+        if (ranking.category_scores) {
+            Object.keys(ranking.category_scores).forEach(categoryName => {
+                if (categoryScores.hasOwnProperty(categoryName)) {
+                    // 显示有效分数（考虑了100分上限）
+                    categoryScores[categoryName] = ranking.category_scores[categoryName].effective_score;
+                }
             });
-            if (categoryScores.hasOwnProperty(categoryName)) {
-                categoryScores[categoryName] = categoryScore;
-            }
-        });
+        } else {
+            // 兼容性：如果没有category_scores字段，使用原逻辑
+            Object.keys(ranking.materials).forEach(categoryName => {
+                const materials = ranking.materials[categoryName];
+                let categoryScore = 0;
+                materials.forEach(material => {
+                    categoryScore += parseFloat(material.score || 0);
+                });
+                if (categoryScores.hasOwnProperty(categoryName)) {
+                    categoryScores[categoryName] = categoryScore;
+                }
+            });
+        }
         
         const rowStyle = index % 2 === 0 ? 'background: rgba(255, 255, 255, 0.05);' : '';
         const rankStyle = ranking.rank <= 3 ? 

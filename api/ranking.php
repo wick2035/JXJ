@@ -74,15 +74,49 @@ function getBatchRanking($batchId) {
             
             // 按类目分组材料
             $categorizedMaterials = [];
+            $categoryScores = []; // 原始分数
             foreach ($materials as $material) {
                 $categoryName = $material['category_name'];
+                $categoryId = $material['category_id'];
+                
                 if (!isset($categorizedMaterials[$categoryName])) {
                     $categorizedMaterials[$categoryName] = [];
+                    $categoryScores[$categoryId] = 0;
                 }
                 $categorizedMaterials[$categoryName][] = $material;
+                $categoryScores[$categoryId] += $material['score'];
+            }
+            
+            // 获取类目配置信息并计算有效分数
+            $effectiveCategoryScores = [];
+            if (!empty($categoryScores)) {
+                $categoryIds = array_keys($categoryScores);
+                $placeholders = str_repeat('?,', count($categoryIds) - 1) . '?';
+                $stmt = $pdo->prepare("SELECT id, name, score, max_score_limit FROM categories WHERE id IN ($placeholders)");
+                $stmt->execute($categoryIds);
+                $categoryConfigs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                
+                foreach ($categoryConfigs as $config) {
+                    $categoryId = $config['id'];
+                    $categoryName = $config['name'];
+                    $rawScore = $categoryScores[$categoryId] ?? 0;
+                    $hasLimit = $config['max_score_limit'] == 1;
+                    
+                    // 如果设置了100分上限，则限制最高为100
+                    $effectiveScore = $hasLimit ? min($rawScore, 100) : $rawScore;
+                    
+                    $effectiveCategoryScores[$categoryName] = [
+                        'raw_score' => $rawScore,
+                        'effective_score' => $effectiveScore,
+                        'score_ratio' => $config['score'],
+                        'has_limit' => $hasLimit,
+                        'contribution' => ($effectiveScore * $config['score']) / 100
+                    ];
+                }
             }
             
             $ranking['materials'] = $categorizedMaterials;
+            $ranking['category_scores'] = $effectiveCategoryScores;
         }
         
         return [

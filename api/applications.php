@@ -92,14 +92,66 @@ function getApplicationDetail($id, $userId = null) {
     $stmt->execute([$id]);
     $materials = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
+    // 调试信息
+    error_log("Application materials from database: " . print_r($materials, true));
+    error_log("Materials count: " . count($materials));
+    
+    // 检查是否有重复的材料ID
+    $materialIds = array_column($materials, 'id');
+    $uniqueIds = array_unique($materialIds);
+    if (count($materialIds) !== count($uniqueIds)) {
+        error_log("⚠️ WARNING: Duplicate material IDs detected in query result!");
+        error_log("Material IDs: " . print_r($materialIds, true));
+        error_log("Unique IDs: " . print_r($uniqueIds, true));
+    }
+    
     // 获取每个材料的文件
-    foreach ($materials as &$material) {
+    foreach ($materials as $index => $material) {
         $stmt = $pdo->prepare("SELECT * FROM uploaded_files WHERE material_id = ?");
         $stmt->execute([$material['id']]);
-        $material['files'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $materials[$index]['files'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
     $application['materials'] = $materials;
+    
+    // 计算各类目的有效分数（考虑上限和折算）
+    $categoryScores = [];
+    foreach ($materials as $material) {
+        $categoryId = $material['category_id'];
+        if (!isset($categoryScores[$categoryId])) {
+            $categoryScores[$categoryId] = 0;
+        }
+        $categoryScores[$categoryId] += $material['score'];
+    }
+    
+    $effectiveCategoryScores = [];
+    if (!empty($categoryScores)) {
+        $categoryIds = array_keys($categoryScores);
+        $placeholders = str_repeat('?,', count($categoryIds) - 1) . '?';
+        $stmt = $pdo->prepare("SELECT id, name, score, max_score_limit FROM categories WHERE id IN ($placeholders)");
+        $stmt->execute($categoryIds);
+        $categoryConfigs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach ($categoryConfigs as $config) {
+            $categoryId = $config['id'];
+            $categoryName = $config['name'];
+            $rawScore = $categoryScores[$categoryId] ?? 0;
+            $hasLimit = $config['max_score_limit'] == 1;
+            
+            // 如果设置了100分上限，则限制最高为100
+            $effectiveScore = $hasLimit ? min($rawScore, 100) : $rawScore;
+            
+            $effectiveCategoryScores[$categoryName] = [
+                'raw_score' => $rawScore,
+                'effective_score' => $effectiveScore,
+                'score_ratio' => $config['score'],
+                'has_limit' => $hasLimit,
+                'contribution' => ($effectiveScore * $config['score']) / 100
+            ];
+        }
+    }
+    
+    $application['category_scores'] = $effectiveCategoryScores;
     
     return ['success' => true, 'data' => $application];
 }
@@ -209,8 +261,8 @@ function saveApplication($userId, $batchId, $materials) {
             $applicationId = $pdo->lastInsertId();
         }
         
-        $totalScore = 0;
         $processedMaterials = []; // 跟踪处理过的材料
+        $categoryScores = []; // 按类目统计分数
         
         // 保存/更新材料数据
         foreach ($materials as $material) {
@@ -218,6 +270,7 @@ function saveApplication($userId, $batchId, $materials) {
             $score = isset($material['score']) ? (int)$material['score'] : 0;
             
             error_log("Processing material: " . print_r($material, true));
+            error_log("Material category_id: " . $material['category_id'] . ", type: " . gettype($material['category_id']));
             
             $materialKey = $material['category_id'] . '_' . $material['item_id'];
             $processedMaterials[] = $materialKey;
@@ -248,6 +301,9 @@ function saveApplication($userId, $batchId, $materials) {
                     (application_id, category_id, item_id, award_level, award_grade, score) 
                     VALUES (?, ?, ?, ?, ?, ?)
                 ");
+                
+                error_log("Inserting material: application_id=$applicationId, category_id={$material['category_id']}, item_id={$material['item_id']}, level={$material['award_level']}, grade={$material['award_grade']}, score=$score");
+                
                 $stmt->execute([
                     $applicationId,
                     $material['category_id'],
@@ -257,9 +313,16 @@ function saveApplication($userId, $batchId, $materials) {
                     $score
                 ]);
                 $materialId = $pdo->lastInsertId();
+                
+                error_log("Inserted material with ID: $materialId");
             }
             
-            $totalScore += $score;
+            // 按类目累计分数
+            $categoryId = $material['category_id'];
+            if (!isset($categoryScores[$categoryId])) {
+                $categoryScores[$categoryId] = 0;
+            }
+            $categoryScores[$categoryId] += $score;
             
             // 🔥 关键修复：智能处理文件数据
             if (isset($material['files']) && is_array($material['files']) && count($material['files']) > 0) {
@@ -338,6 +401,47 @@ function saveApplication($userId, $batchId, $materials) {
                 }
             }
         }
+        
+        // 🔥 新的总分计算逻辑：按类目计算，支持上限和折算
+        $totalScore = 0;
+        
+        if (!empty($categoryScores)) {
+            // 获取所有类目的配置信息
+            $categoryIds = array_keys($categoryScores);
+            $placeholders = str_repeat('?,', count($categoryIds) - 1) . '?';
+            $stmt = $pdo->prepare("SELECT id, score, max_score_limit FROM categories WHERE id IN ($placeholders)");
+            $stmt->execute($categoryIds);
+            $categoryConfigs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // 构建类目配置映射
+            $categoryConfigMap = [];
+            foreach ($categoryConfigs as $config) {
+                $categoryConfigMap[$config['id']] = $config;
+            }
+            
+            error_log("Category scores: " . print_r($categoryScores, true));
+            error_log("Category configs: " . print_r($categoryConfigMap, true));
+            
+            // 计算各类目的最终得分
+            foreach ($categoryScores as $categoryId => $rawScore) {
+                if (isset($categoryConfigMap[$categoryId])) {
+                    $config = $categoryConfigMap[$categoryId];
+                    $scoreRatio = $config['score']; // 分数占比
+                    $hasLimit = $config['max_score_limit'] == 1;
+                    
+                    // 如果设置了100分上限，则限制最高为100
+                    $effectiveScore = $hasLimit ? min($rawScore, 100) : $rawScore;
+                    
+                    // 计算该类目在总分中的贡献：有效分数 * 占比 / 100
+                    $categoryContribution = ($effectiveScore * $scoreRatio) / 100;
+                    $totalScore += $categoryContribution;
+                    
+                    error_log("Category $categoryId: rawScore=$rawScore, effectiveScore=$effectiveScore, ratio=$scoreRatio, contribution=$categoryContribution, hasLimit=" . ($hasLimit ? 'true' : 'false'));
+                }
+            }
+        }
+        
+        error_log("Final total score: $totalScore");
         
         // 更新总分
         $stmt = $pdo->prepare("UPDATE applications SET total_score = ?, submitted_at = NOW() WHERE id = ?");
@@ -869,6 +973,38 @@ try {
             
             $result = deleteApplication($id);
             echo json_encode($result);
+            break;
+            
+        case 'debug_materials':
+            // 调试端点：直接查询原始材料数据
+            if (!isset($_GET['id'])) {
+                echo json_encode(['success' => false, 'message' => '缺少申请ID']);
+                break;
+            }
+            
+            $applicationId = (int)$_GET['id'];
+            $pdo = getConnection();
+            
+            // 查询原始材料数据
+            $stmt = $pdo->prepare("
+                SELECT am.*, c.name as category_name, i.name as item_name
+                FROM application_materials am
+                LEFT JOIN categories c ON am.category_id = c.id
+                LEFT JOIN items i ON am.item_id = i.id
+                WHERE am.application_id = ?
+                ORDER BY am.id
+            ");
+            $stmt->execute([$applicationId]);
+            $materials = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            echo json_encode([
+                'success' => true,
+                'application_id' => $applicationId,
+                'materials_count' => count($materials),
+                'materials' => $materials,
+                'material_ids' => array_column($materials, 'id'),
+                'unique_material_ids' => array_unique(array_column($materials, 'id'))
+            ]);
             break;
             
         default:

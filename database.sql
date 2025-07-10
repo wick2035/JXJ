@@ -251,3 +251,11 @@ INSERT INTO `item_scores` (`item_id`, `level`, `grade`, `score`) VALUES
 -- 插入默认公告
 INSERT INTO `announcements` (`title`, `content`, `type`, `is_active`, `created_by`) VALUES
 ('2025年春季奖学金评定开始通知', '各位同学：\n\n2025年春季奖学金评定工作正式开始，请大家注意以下几点：\n\n1. 申请截止时间：2025年7月15日\n2. 请确保所有材料完整、真实有效\n3. 如有疑问请及时联系管理员\n4. 材料提交后请耐心等待审核结果\n\n祝大家申请顺利！', 'important', 1, 2); 
+
+
+ALTER TABLE `categories` 
+ADD COLUMN `max_score_limit` tinyint(1) NOT NULL DEFAULT 0 
+COMMENT '是否启用100分上限: 0=不启用, 1=启用' 
+AFTER `score`;
+
+UPDATE `categories` SET `max_score_limit` = 0;

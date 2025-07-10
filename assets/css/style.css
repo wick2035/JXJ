@@ -1295,6 +1295,68 @@ body::before {
     text-align: center;
 }
 
+/* 自定义复选框样式 */
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-left: 30px;
+    color: white;
+}
+
+.form-checkbox {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+    height: 0;
+    width: 0;
+}
+
+.checkmark {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+    height: 20px;
+    width: 20px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    transition: all 0.3s ease;
+}
+
+.checkbox-label:hover .checkmark {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.form-checkbox:checked ~ .checkmark {
+    background-color: #4ecdc4;
+    border-color: #4ecdc4;
+}
+
+.checkmark:after {
+    content: "";
+    position: absolute;
+    display: none;
+}
+
+.form-checkbox:checked ~ .checkmark:after {
+    display: block;
+}
+
+.checkmark:after {
+    left: 6px;
+    top: 2px;
+    width: 6px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
 /* 排名容器样式 */
 .ranking-container {
     background: rgba(255, 255, 255, 0.1);
