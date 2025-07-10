@@ -77,7 +77,7 @@ CREATE TABLE `item_scores` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `item_id` int(11) NOT NULL,
   `level` enum('national','provincial','municipal','university','college','ungraded') NOT NULL,
-  `grade` enum('first','second','third','none') NOT NULL,
+  `grade` varchar(50) NOT NULL,
   `score` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `unique_item_level_grade` (`item_id`,`level`,`grade`),
@@ -259,3 +259,285 @@ COMMENT '是否启用100分上限: 0=不启用, 1=启用'
 AFTER `score`;
 
 UPDATE `categories` SET `max_score_limit` = 0;
+
+-- 更新奖项分数配置表，支持自定义等级名称和团体/个人区别
+-- 执行日期: 2025年
+
+-- 1. 为 item_scores 表添加新字段
+ALTER TABLE `item_scores` 
+ADD COLUMN `custom_grade_name` varchar(50) DEFAULT NULL COMMENT '自定义等级名称' AFTER `grade`,
+ADD COLUMN `award_type` enum('individual','team') NOT NULL DEFAULT 'individual' COMMENT '奖项类型: individual=个人, team=团体' AFTER `custom_grade_name`;
+
+-- 2. 为 items 表添加默认奖项类型字段
+ALTER TABLE `items` 
+ADD COLUMN `default_award_type` enum('individual','team') NOT NULL DEFAULT 'individual' COMMENT '默认奖项类型: individual=个人, team=团体' AFTER `description`;
+
+-- 3. 创建自定义等级管理表
+CREATE TABLE `custom_grades` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `item_id` int(11) NOT NULL,
+  `grade_key` varchar(50) NOT NULL COMMENT '等级键值（用于程序识别）',
+  `grade_name` varchar(50) NOT NULL COMMENT '等级显示名称',
+  `sort_order` int(11) NOT NULL DEFAULT 0 COMMENT '排序顺序',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_item_grade` (`item_id`,`grade_key`),
+  KEY `idx_item` (`item_id`),
+  FOREIGN KEY (`item_id`) REFERENCES `items`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 4. 更新现有数据，填充默认的自定义等级名称
+UPDATE `item_scores` SET 
+  `custom_grade_name` = CASE 
+    WHEN `grade` = 'first' THEN '一等奖'
+    WHEN `grade` = 'second' THEN '二等奖'
+    WHEN `grade` = 'third' THEN '三等奖'
+    WHEN `grade` = 'none' THEN '无等级'
+    ELSE '未知等级'
+  END,
+  `award_type` = 'individual'
+WHERE `custom_grade_name` IS NULL;
+
+-- 5. 为所有现有奖项创建默认的自定义等级配置
+INSERT INTO `custom_grades` (`item_id`, `grade_key`, `grade_name`, `sort_order`)
+SELECT DISTINCT i.id, 'first', '一等奖', 1
+FROM `items` i;
+
+INSERT INTO `custom_grades` (`item_id`, `grade_key`, `grade_name`, `sort_order`)
+SELECT DISTINCT i.id, 'second', '二等奖', 2
+FROM `items` i;
+
+INSERT INTO `custom_grades` (`item_id`, `grade_key`, `grade_name`, `sort_order`)
+SELECT DISTINCT i.id, 'third', '三等奖', 3
+FROM `items` i;
+
+INSERT INTO `custom_grades` (`item_id`, `grade_key`, `grade_name`, `sort_order`)
+SELECT DISTINCT i.id, 'none', '无等级', 4
+FROM `items` i;
+
+-- 6. 添加索引优化查询性能
+ALTER TABLE `item_scores` ADD INDEX `idx_award_type` (`award_type`);
+ALTER TABLE `items` ADD INDEX `idx_default_award_type` (`default_award_type`);
+
+-- 完成提示
+SELECT '数据库结构更新完成！已支持自定义等级名称和团体/个人奖项区别。' as message; 
+
+
+
+
+
+
+
+-- 为现有奖项添加新的等级选项（鼓励奖、参与奖）
+-- 执行日期: 2025年
+
+-- 1. 为现有的所有奖项添加鼓励奖等级分数配置
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'national' as level,
+    'encouragement' as grade,
+    0 as score,
+    '鼓励奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'national' AND grade = 'encouragement'
+);
+
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'provincial' as level,
+    'encouragement' as grade,
+    0 as score,
+    '鼓励奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'provincial' AND grade = 'encouragement'
+);
+
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'municipal' as level,
+    'encouragement' as grade,
+    0 as score,
+    '鼓励奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'municipal' AND grade = 'encouragement'
+);
+
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'university' as level,
+    'encouragement' as grade,
+    0 as score,
+    '鼓励奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'university' AND grade = 'encouragement'
+);
+
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'college' as level,
+    'encouragement' as grade,
+    0 as score,
+    '鼓励奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'college' AND grade = 'encouragement'
+);
+
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'ungraded' as level,
+    'encouragement' as grade,
+    0 as score,
+    '鼓励奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'ungraded' AND grade = 'encouragement'
+);
+
+-- 2. 为现有的所有奖项添加参与奖等级分数配置
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'national' as level,
+    'participation' as grade,
+    0 as score,
+    '参与奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'national' AND grade = 'participation'
+);
+
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'provincial' as level,
+    'participation' as grade,
+    0 as score,
+    '参与奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'provincial' AND grade = 'participation'
+);
+
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'municipal' as level,
+    'participation' as grade,
+    0 as score,
+    '参与奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'municipal' AND grade = 'participation'
+);
+
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'university' as level,
+    'participation' as grade,
+    0 as score,
+    '参与奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'university' AND grade = 'participation'
+);
+
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'college' as level,
+    'participation' as grade,
+    0 as score,
+    '参与奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'college' AND grade = 'participation'
+);
+
+INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type)
+SELECT 
+    i.id as item_id,
+    'ungraded' as level,
+    'participation' as grade,
+    0 as score,
+    '参与奖' as custom_grade_name,
+    'individual' as award_type
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM item_scores 
+    WHERE item_id = i.id AND level = 'ungraded' AND grade = 'participation'
+);
+
+-- 3. 为现有的所有奖项添加自定义等级配置
+INSERT INTO custom_grades (item_id, grade_key, grade_name, sort_order)
+SELECT 
+    i.id as item_id,
+    'encouragement' as grade_key,
+    '鼓励奖' as grade_name,
+    4 as sort_order
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM custom_grades 
+    WHERE item_id = i.id AND grade_key = 'encouragement'
+);
+
+INSERT INTO custom_grades (item_id, grade_key, grade_name, sort_order)
+SELECT 
+    i.id as item_id,
+    'participation' as grade_key,
+    '参与奖' as grade_name,
+    5 as sort_order
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM custom_grades 
+    WHERE item_id = i.id AND grade_key = 'participation'
+);
+
+-- 4. 更新现有的"无等级"排序顺序
+UPDATE custom_grades SET sort_order = 6 WHERE grade_key = 'none' AND sort_order = 4;
+
+SELECT 'Database update completed - Added encouragement and participation grades to all existing items' as message; 
+
+-- 为 application_materials 表添加 award_type 字段
+-- 解决申请详情页面无法识别团体奖项的问题
+
+ALTER TABLE `application_materials` 
+ADD COLUMN `award_type` enum('individual','team') NOT NULL DEFAULT 'individual' 
+COMMENT '奖项类型: individual=个人, team=团体' 
+AFTER `score`;
+
+-- 添加索引
+ALTER TABLE `application_materials` ADD INDEX `idx_award_type` (`award_type`);

@@ -81,7 +81,7 @@ function getApplicationDetail($id, $userId = null) {
         return ['success' => false, 'message' => '申请不存在'];
     }
     
-    // 获取申请材料
+    // 获取申请材料（包含奖项类型信息）
     $stmt = $pdo->prepare("
         SELECT am.*, c.name as category_name, i.name as item_name 
         FROM application_materials am
@@ -269,6 +269,16 @@ function saveApplication($userId, $batchId, $materials) {
             // 确保score不为null
             $score = isset($material['score']) ? (int)$material['score'] : 0;
             
+            // 🔥 后端统一处理团体奖项分数减半：前端传递原始分数，后端根据award_type决定是否减半
+            $awardType = $material['award_type'] ?? 'individual';
+            if ($awardType === 'team') {
+                $originalScore = $score;
+                $score = floor($score / 2); // 团体奖项分数减半（向下取整）
+                error_log("🔥 后端团体奖项处理: 原始分数 $originalScore -> 减半后分数 $score");
+            } else {
+                error_log("🔥 后端个人奖项处理: 保持原始分数 $score");
+            }
+            
             error_log("Processing material: " . print_r($material, true));
             error_log("Material category_id: " . $material['category_id'] . ", type: " . gettype($material['category_id']));
             
@@ -283,13 +293,14 @@ function saveApplication($userId, $batchId, $materials) {
                 
                 $stmt = $pdo->prepare("
                     UPDATE application_materials 
-                    SET award_level = ?, award_grade = ?, score = ?
+                    SET award_level = ?, award_grade = ?, score = ?, award_type = ?
                     WHERE id = ?
                 ");
                 $stmt->execute([
                     $material['award_level'],
                     $material['award_grade'],
                     $score,
+                    $material['award_type'] ?? 'individual',
                     $materialId
                 ]);
             } else {
@@ -298,11 +309,11 @@ function saveApplication($userId, $batchId, $materials) {
                 
                 $stmt = $pdo->prepare("
                     INSERT INTO application_materials 
-                    (application_id, category_id, item_id, award_level, award_grade, score) 
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (application_id, category_id, item_id, award_level, award_grade, score, award_type) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 ");
                 
-                error_log("Inserting material: application_id=$applicationId, category_id={$material['category_id']}, item_id={$material['item_id']}, level={$material['award_level']}, grade={$material['award_grade']}, score=$score");
+                error_log("Inserting material: application_id=$applicationId, category_id={$material['category_id']}, item_id={$material['item_id']}, level={$material['award_level']}, grade={$material['award_grade']}, score=$score, award_type=" . ($material['award_type'] ?? 'individual'));
                 
                 $stmt->execute([
                     $applicationId,
@@ -310,7 +321,8 @@ function saveApplication($userId, $batchId, $materials) {
                     $material['item_id'],
                     $material['award_level'],
                     $material['award_grade'],
-                    $score
+                    $score,
+                    $material['award_type'] ?? 'individual'
                 ]);
                 $materialId = $pdo->lastInsertId();
                 

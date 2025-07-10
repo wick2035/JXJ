@@ -26,7 +26,7 @@ function forceResetSubmitButton() {
 
 // 奖项等级和级别定义
 const awardLevels = ['national', 'provincial', 'municipal', 'university', 'college', 'ungraded'];
-const awardGrades = ['first', 'second', 'third', 'none'];
+const awardGrades = ['first', 'second', 'third', 'encouragement', 'participation', 'none'];
 
 const levelNames = {
     'national': '国家级',
@@ -868,10 +868,18 @@ async function viewApplication(applicationId) {
                         const levelName = levelNames[material.award_level] || '未知级别';
                         const gradeName = gradeNames[material.award_grade] || '未知等级';
                         
+                        // 显示奖项类型标识（数据库中的score已经是正确的分数）
+                        let awardTypeText = '';
+                        if (material.award_type === 'team') {
+                            awardTypeText = ' <span style="color: #fbbf24; font-size: 12px; background: rgba(251, 191, 36, 0.2); padding: 2px 6px; border-radius: 4px;">(团体)</span>';
+                        } else if (material.award_type === 'individual') {
+                            awardTypeText = ' <span style="color: #60a5fa; font-size: 12px; background: rgba(96, 165, 250, 0.2); padding: 2px 6px; border-radius: 4px;">(个人)</span>';
+                        }
+                        
                         categoryItemsHtml += `
                             <div style="background: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(8px);">
                                 <div style="color: #fbbf24; font-weight: 700; margin-bottom: 8px; font-size: 16px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">
-                                    ${index + 1}. ${material.item_name}
+                                    ${index + 1}. ${material.item_name}${awardTypeText}
                                 </div>
                                 <div style="color: #ffffff; font-size: 14px; margin-bottom: 15px; background: rgba(255, 255, 255, 0.1); padding: 10px 15px; border-radius: 8px; font-weight: 600;">
                                     ${levelName} ${gradeName} - 得分: <span style="color: #22c55e; font-weight: 700; font-size: 16px;">${material.score}分</span>
@@ -1117,18 +1125,34 @@ function addItemToCategory(categoryId, itemData = null, itemIndex, itemOptions =
         }
     }
     
-    // 级别和等级选项
-    let levelOptions = '';
+    // 级别和等级选项 - 初始状态为空，需要先选择奖项
+    let levelOptions = '<option value="">请先选择奖项</option>';
+    let gradeOptions = '<option value="">请先选择奖项</option>';
+    
+    // 如果是编辑模式且有预填数据，则显示所有选项
+    if (itemData && itemData.item_id) {
+        levelOptions = '<option value="">请选择级别</option>';
     awardLevels.forEach(level => {
         const selected = itemData && itemData.award_level === level ? 'selected' : '';
         levelOptions += `<option value="${level}" ${selected}>${levelNames[level]}</option>`;
     });
     
-    let gradeOptions = '';
-    awardGrades.forEach(grade => {
-        const selected = itemData && itemData.award_grade === grade ? 'selected' : '';
-        gradeOptions += `<option value="${grade}" ${selected}>${gradeNames[grade]}</option>`;
+        gradeOptions = '<option value="">请选择等级</option>';
+        // 使用自定义等级名称
+        const defaultGrades = [
+            {grade_key: 'first', grade_name: '一等奖'},
+            {grade_key: 'second', grade_name: '二等奖'},
+            {grade_key: 'third', grade_name: '三等奖'},
+            {grade_key: 'encouragement', grade_name: '鼓励奖'},
+            {grade_key: 'participation', grade_name: '参与奖'},
+            {grade_key: 'none', grade_name: '无等级'}
+        ];
+        
+        defaultGrades.forEach(gradeConfig => {
+            const selected = itemData && itemData.award_grade === gradeConfig.grade_key ? 'selected' : '';
+            gradeOptions += `<option value="${gradeConfig.grade_key}" ${selected}>${gradeConfig.grade_name}</option>`;
     });
+    }
     
     const itemEl = document.createElement('div');
     itemEl.className = 'item-entry';
@@ -1172,6 +1196,14 @@ function addItemToCategory(categoryId, itemData = null, itemIndex, itemOptions =
         </div>
         
         <div class="form-group">
+            <label class="form-label">奖项类型</label>
+            <select class="form-select" id="awardTypeSelect${categoryId}_${itemIndex}" onchange="updateScoreCalculation(${categoryId}, '${itemIndex}')">
+                <option value="individual" ${(!itemData || !itemData.award_type || itemData.award_type === 'individual') ? 'selected' : ''}>个人奖项</option>
+                <option value="team" ${(itemData && itemData.award_type === 'team') ? 'selected' : ''}>团体奖项</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
             <label class="form-label">上传证明文件</label>
             <div class="file-upload" onclick="selectFilesForItem(${categoryId}, ${itemIndex})" id="fileUpload${categoryId}_${itemIndex}">
                 <div class="upload-icon">📁</div>
@@ -1194,6 +1226,10 @@ function addItemToCategory(categoryId, itemData = null, itemIndex, itemOptions =
     // 触发分数计算 - 对于编辑模式，强制重新计算分数
     if (itemData) {
         setTimeout(() => {
+            // 如果是编辑模式且有奖项数据，先更新级别等级选项
+            if (itemData.item_id) {
+                updateLevelAndGradeOptions(categoryId, itemIndex, itemData.item_id);
+            }
             updateScoreCalculation(categoryId, itemIndex);
             // 如果是编辑模式，再次确保分数正确计算
             if (itemIndex.includes('edit_')) {
@@ -1226,11 +1262,16 @@ function updateItemNumbers(categoryId) {
 function updateItemSelection(categoryId, itemIndex) {
     const itemSelect = document.getElementById(`itemSelect${categoryId}_${itemIndex}`);
     const fileUpload = document.getElementById(`fileUpload${categoryId}_${itemIndex}`);
+    const levelSelect = document.getElementById(`levelSelect${categoryId}_${itemIndex}`);
+    const gradeSelect = document.getElementById(`gradeSelect${categoryId}_${itemIndex}`);
     const selectedItemId = itemSelect.value;
     
     if (selectedItemId) {
         // 启用文件上传
         fileUpload.classList.add('enabled');
+        
+        // 动态更新级别和等级选项，只显示分数大于0的组合
+        updateLevelAndGradeOptions(categoryId, itemIndex, selectedItemId);
         
         // 触发分数重新计算
         updateScoreCalculation(categoryId, itemIndex);
@@ -1238,12 +1279,135 @@ function updateItemSelection(categoryId, itemIndex) {
         // 禁用文件上传
         fileUpload.classList.remove('enabled');
         
+        // 恢复所有级别和等级选项
+        resetLevelAndGradeOptions(categoryId, itemIndex);
+        
         // 清空分数
         const scoreInput = document.getElementById(`scoreInput${categoryId}_${itemIndex}`);
         if (scoreInput) {
             scoreInput.value = '';
         }
     }
+}
+
+// 根据选中的奖项更新级别和等级选项，只显示分数大于0的组合
+function updateLevelAndGradeOptions(categoryId, itemIndex, selectedItemId) {
+    const levelSelect = document.getElementById(`levelSelect${categoryId}_${itemIndex}`);
+    const gradeSelect = document.getElementById(`gradeSelect${categoryId}_${itemIndex}`);
+    
+    if (!levelSelect || !gradeSelect) {
+        console.error('Level or grade select not found:', categoryId, itemIndex);
+        return;
+    }
+    
+    // 获取选中的奖项
+    const numericCategoryId = parseInt(categoryId);
+    const category = categories.find(c => parseInt(c.id) === numericCategoryId);
+    
+    if (!category || !category.items) {
+        console.error('Category or items not found:', categoryId);
+        return;
+    }
+    
+    const item = category.items.find(i => parseInt(i.id) === parseInt(selectedItemId));
+    if (!item || !item.scores) {
+        console.error('Item or scores not found:', selectedItemId);
+        return;
+    }
+    
+    // 保存当前选中的值
+    const currentLevel = levelSelect.value;
+    const currentGrade = gradeSelect.value;
+    
+    // 获取所有分数大于0的级别和等级组合
+    const validLevels = new Set();
+    const validGrades = new Set();
+    const validCombinations = new Set();
+    
+    awardLevels.forEach(level => {
+        awardGrades.forEach(grade => {
+            const scoreKey = `${level}_${grade}`;
+            const score = parseInt(item.scores[scoreKey]) || 0;
+            if (score > 0) {
+                validLevels.add(level);
+                validGrades.add(grade);
+                validCombinations.add(scoreKey);
+            }
+        });
+    });
+    
+    // 更新级别选项
+    let levelOptions = '<option value="">请选择级别</option>';
+    awardLevels.forEach(level => {
+        if (validLevels.has(level)) {
+            const selected = currentLevel === level ? 'selected' : '';
+            levelOptions += `<option value="${level}" ${selected}>${levelNames[level]}</option>`;
+        }
+    });
+    levelSelect.innerHTML = levelOptions;
+    
+    // 更新等级选项 - 使用自定义等级名称
+    let gradeOptions = '<option value="">请选择等级</option>';
+    
+    // 获取自定义等级名称
+    const customGrades = item.custom_grades || [
+        {grade_key: 'first', grade_name: '一等奖'},
+        {grade_key: 'second', grade_name: '二等奖'},
+        {grade_key: 'third', grade_name: '三等奖'},
+        {grade_key: 'encouragement', grade_name: '鼓励奖'},
+        {grade_key: 'participation', grade_name: '参与奖'},
+        {grade_key: 'none', grade_name: '无等级'}
+    ];
+    
+    customGrades.forEach(gradeConfig => {
+        if (validGrades.has(gradeConfig.grade_key)) {
+            const selected = currentGrade === gradeConfig.grade_key ? 'selected' : '';
+            gradeOptions += `<option value="${gradeConfig.grade_key}" ${selected}>${gradeConfig.grade_name}</option>`;
+        }
+    });
+    gradeSelect.innerHTML = gradeOptions;
+    
+    // 如果当前选中的组合分数为0，则清空选择
+    if (currentLevel && currentGrade) {
+        const currentCombination = `${currentLevel}_${currentGrade}`;
+        if (!validCombinations.has(currentCombination)) {
+            levelSelect.value = '';
+            gradeSelect.value = '';
+        }
+    }
+}
+
+// 恢复所有级别和等级选项
+function resetLevelAndGradeOptions(categoryId, itemIndex) {
+    const levelSelect = document.getElementById(`levelSelect${categoryId}_${itemIndex}`);
+    const gradeSelect = document.getElementById(`gradeSelect${categoryId}_${itemIndex}`);
+    
+    if (!levelSelect || !gradeSelect) {
+        return;
+    }
+    
+    // 恢复所有级别选项
+    let levelOptions = '<option value="">请选择级别</option>';
+    awardLevels.forEach(level => {
+        levelOptions += `<option value="${level}">${levelNames[level]}</option>`;
+    });
+    levelSelect.innerHTML = levelOptions;
+    
+    // 恢复所有等级选项 - 使用默认等级名称
+    let gradeOptions = '<option value="">请选择等级</option>';
+    const defaultGrades = [
+        {grade_key: 'first', grade_name: '一等奖'},
+        {grade_key: 'second', grade_name: '二等奖'},
+        {grade_key: 'third', grade_name: '三等奖'},
+        {grade_key: 'encouragement', grade_name: '鼓励奖'},
+        {grade_key: 'participation', grade_name: '参与奖'},
+        {grade_key: 'none', grade_name: '无等级'}
+    ];
+    
+    defaultGrades.forEach(gradeConfig => {
+        gradeOptions += `<option value="${gradeConfig.grade_key}">${gradeConfig.grade_name}</option>`;
+    });
+    gradeSelect.innerHTML = gradeOptions;
 }
 
 function updateScoreCalculation(categoryId, itemIndex) {
@@ -1321,6 +1485,13 @@ function updateScoreCalculation(categoryId, itemIndex) {
             }
         } else {
             console.log('item.scores不存在');
+        }
+        
+        // 检查是否选择团体奖项，如果是则分数减半
+        const awardTypeSelect = document.getElementById(`awardTypeSelect${categoryId}_${itemIndex}`);
+        if (awardTypeSelect && awardTypeSelect.value === 'team') {
+            score = Math.floor(score / 2); // 团体奖项分数减半（向下取整）
+            console.log(`团体奖项分数减半: ${score}`);
         }
         
         console.log(`最终分数: ${score}`);
@@ -1671,6 +1842,7 @@ async function submitApplication() {
             const itemSelect = document.getElementById(`itemSelect${category.id}_${itemIndex}`);
             const levelSelect = document.getElementById(`levelSelect${category.id}_${itemIndex}`);
             const gradeSelect = document.getElementById(`gradeSelect${category.id}_${itemIndex}`);
+            const awardTypeSelect = document.getElementById(`awardTypeSelect${category.id}_${itemIndex}`);
             
             console.log(`表单元素检查:`, {
                 itemSelect: itemSelect,
@@ -1700,7 +1872,7 @@ async function submitApplication() {
                     }))
                 });
                 
-                // 计算分数
+                // 计算分数 - 重新从原始配置计算原始分数，后端将根据award_type决定是否减半
                 const selectedItem = category.items.find(item => item.id == itemSelect.value);
                 const scoreKey = `${levelSelect.value}_${gradeSelect.value}`;
                 let score = 0;
@@ -1720,6 +1892,19 @@ async function submitApplication() {
                         }
                     }
                 }
+                
+                // 重要：这里的score是原始分数，将传递给后端，后端根据award_type决定是否减半
+                
+                // 🔥 修复策略：前端不再处理减半，将原始分数传给后端，由后端根据award_type决定是否减半
+                console.log('奖项类型检查:', {
+                    awardTypeSelect: awardTypeSelect,
+                    awardTypeValue: awardTypeSelect ? awardTypeSelect.value : 'null',
+                    originalScore: score,
+                    scoreKey: scoreKey,
+                    selectedItemScores: selectedItem ? selectedItem.scores : null
+                });
+                
+                console.log(`📤 提交原始分数给后端: ${score}，奖项类型: ${awardTypeSelect ? awardTypeSelect.value : 'individual'}，后端将根据类型决定是否减半`);
                 
                 // 检查是否是编辑模式下的已有项目（itemIndex包含edit_前缀）
                 const isEditingExistingItem = itemIndex.includes('edit_');
@@ -1751,6 +1936,7 @@ async function submitApplication() {
                             item_id: parseInt(itemSelect.value),
                             award_level: levelSelect.value,
                             award_grade: gradeSelect.value,
+                            award_type: awardTypeSelect ? awardTypeSelect.value : 'individual',
                             score: score,
                             files: files.map(file => {
                                 return {
@@ -1777,6 +1963,7 @@ async function submitApplication() {
                         item_id: parseInt(itemSelect.value),
                         award_level: levelSelect.value,
                         award_grade: gradeSelect.value,
+                        award_type: awardTypeSelect ? awardTypeSelect.value : 'individual',
                         score: score,
                         files: files.map(file => {
                             // 如果文件有id或isExisting标记，说明是已存在的文件，保留原始信息
@@ -2275,30 +2462,84 @@ function renderCategoryList() {
     });
 }
 
+// 切换模板选择显示/隐藏
+function toggleTemplateSelection() {
+    const checkbox = document.getElementById('copyTemplateCheckbox');
+    const templateGroup = document.getElementById('templateSelectionGroup');
+    
+    if (checkbox.checked) {
+        templateGroup.style.display = 'block';
+        updateTemplateItemsList();
+    } else {
+        templateGroup.style.display = 'none';
+        document.getElementById('templateItemSelect').value = '';
+    }
+}
+
+// 更新模板奖项列表
+function updateTemplateItemsList() {
+    const templateSelect = document.getElementById('templateItemSelect');
+    templateSelect.innerHTML = '<option value="">请选择模板奖项</option>';
+    
+    if (!categories || categories.length === 0) {
+        return;
+    }
+    
+    categories.forEach(category => {
+        if (category.items && category.items.length > 0) {
+            category.items.forEach(item => {
+                templateSelect.innerHTML += `<option value="${item.id}" data-category="${category.id}">${category.name} - ${item.name}</option>`;
+            });
+        }
+    });
+}
+
 // 奖项管理
 async function addNewItemToCategory() {
     const categoryId = parseInt(document.getElementById('categorySelectForItem').value);
     const itemName = document.getElementById('newItemName').value;
+    const copyTemplate = document.getElementById('copyTemplateCheckbox').checked;
+    const templateItemId = copyTemplate ? parseInt(document.getElementById('templateItemSelect').value) : null;
     
     if (!categoryId || !itemName) {
         alert('请填写完整信息！');
         return;
     }
     
+    if (copyTemplate && !templateItemId) {
+        alert('请选择要复制的模板奖项！');
+        return;
+    }
+    
     try {
-        const response = await ApiClient.post('api/categories.php', {
+        const requestData = {
             action: 'create_item',
             category_id: categoryId,
             name: itemName
-        });
+        };
+        
+        if (copyTemplate && templateItemId) {
+            requestData.copy_template = true;
+            requestData.template_item_id = templateItemId;
+        }
+        
+        const response = await ApiClient.post('api/categories.php', requestData);
         
         if (response.success) {
             document.getElementById('categorySelectForItem').value = '';
             document.getElementById('newItemName').value = '';
+            document.getElementById('copyTemplateCheckbox').checked = false;
+            document.getElementById('templateSelectionGroup').style.display = 'none';
+            document.getElementById('templateItemSelect').value = '';
             
             await DataManager.loadCategories();
             renderItemsList();
+            
+            if (copyTemplate) {
+                alert('奖项添加成功！已复制模板分数配置');
+            } else {
             alert('奖项添加成功！请设置各级别等级的分数');
+            }
         } else {
             throw new Error(response.message || '添加失败');
         }
@@ -2344,6 +2585,36 @@ async function updateItemScore(categoryId, itemId, level, grade, score) {
     }
 }
 
+// 更新自定义等级名称
+async function updateCustomGradeName(itemId, gradeKey, gradeName) {
+    if (!gradeName.trim()) {
+        alert('等级名称不能为空！');
+        return;
+    }
+    
+    try {
+        const response = await ApiClient.post('api/categories.php', {
+            action: 'update_custom_grade',
+            item_id: itemId,
+            grade_key: gradeKey,
+            grade_name: gradeName.trim()
+        });
+        
+        if (response.success) {
+            console.log('等级名称更新成功');
+            // 重新加载数据以更新界面
+            await DataManager.loadCategories();
+        } else {
+            throw new Error(response.message || '更新失败');
+        }
+    } catch (error) {
+        console.error('Update custom grade error:', error);
+        alert('更新等级名称失败：' + error.message);
+    }
+}
+
+
+
 function renderItemsList() {
     const container = document.getElementById('itemsListContainer');
     container.innerHTML = '';
@@ -2360,16 +2631,35 @@ function renderItemsList() {
         
         let itemsHtml = '';
         category.items.forEach(item => {
+            // 获取自定义等级名称
+            const customGrades = item.custom_grades || [
+                {grade_key: 'first', grade_name: '一等奖'},
+                {grade_key: 'second', grade_name: '二等奖'},
+                {grade_key: 'third', grade_name: '三等奖'},
+                {grade_key: 'encouragement', grade_name: '鼓励奖'},
+                {grade_key: 'participation', grade_name: '参与奖'},
+                {grade_key: 'none', grade_name: '无等级'}
+            ];
+            
             // 创建分数配置表格
             let scoreTableHtml = `
                 <table class="score-table">
                     <thead>
                         <tr>
-                            <th>级别/等级</th>
-                            <th>一等奖</th>
-                            <th>二等奖</th>
-                            <th>三等奖</th>
-                            <th>无等级</th>
+                            <th>级别/等级</th>`;
+            
+            // 动态生成等级列头，支持自定义等级名称
+            customGrades.forEach(gradeConfig => {
+                scoreTableHtml += `
+                    <th style="position: relative;">
+                        <input type="text" value="${gradeConfig.grade_name}" 
+                               style="background: transparent; border: none; color: white; font-weight: bold; text-align: center; width: 100%;"
+                               onchange="updateCustomGradeName(${item.id}, '${gradeConfig.grade_key}', this.value)"
+                               title="点击修改等级名称">
+                    </th>`;
+            });
+            
+            scoreTableHtml += `
                         </tr>
                     </thead>
                     <tbody>
@@ -2378,13 +2668,14 @@ function renderItemsList() {
             awardLevels.forEach(level => {
                 scoreTableHtml += `<tr>
                     <td style="color: white; font-weight: 500;">${levelNames[level]}</td>`;
-                awardGrades.forEach(grade => {
-                    const scoreKey = `${level}_${grade}`;
+                    
+                customGrades.forEach(gradeConfig => {
+                    const scoreKey = `${level}_${gradeConfig.grade_key}`;
                     const score = item.scores[scoreKey] || 0;
                     scoreTableHtml += `
                         <td>
                             <input type="number" value="${score}" min="0" max="100" 
-                                   onchange="updateItemScore(${category.id}, ${item.id}, '${level}', '${grade}', this.value)">
+                                   onchange="updateItemScore(${category.id}, ${item.id}, '${level}', '${gradeConfig.grade_key}', this.value)">
                         </td>`;
                 });
                 scoreTableHtml += '</tr>';
@@ -2395,7 +2686,9 @@ function renderItemsList() {
             itemsHtml += `
                 <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <div style="color: white; font-weight: 500; font-size: 16px;">${item.name}</div>
+                        <div style="color: white; font-weight: 500; font-size: 16px;">
+                            ${item.name}
+                        </div>
                         <button class="btn-outline btn" onclick="removeItemFromCategory(${category.id}, ${item.id})">删除</button>
                     </div>
                     ${scoreTableHtml}
@@ -3125,10 +3418,18 @@ async function viewApplicationDetail(applicationId) {
                         const levelName = levelNames[material.award_level] || '未知级别';
                         const gradeName = gradeNames[material.award_grade] || '未知等级';
                         
+                        // 显示奖项类型标识（数据库中的score已经是正确的分数）
+                        let awardTypeText = '';
+                        if (material.award_type === 'team') {
+                            awardTypeText = ' <span style="color: #fbbf24; font-size: 12px; background: rgba(251, 191, 36, 0.2); padding: 2px 6px; border-radius: 4px;">(团体)</span>';
+                        } else if (material.award_type === 'individual') {
+                            awardTypeText = ' <span style="color: #60a5fa; font-size: 12px; background: rgba(96, 165, 250, 0.2); padding: 2px 6px; border-radius: 4px;">(个人)</span>';
+                        }
+                        
                         categoryItemsHtml += `
                             <div style="background: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(8px);">
                                 <div style="color: #fbbf24; font-weight: 700; margin-bottom: 8px; font-size: 16px; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);">
-                                    ${index + 1}. ${material.item_name}
+                                    ${index + 1}. ${material.item_name}${awardTypeText}
                                 </div>
                                 <div style="color: #ffffff; font-size: 14px; margin-bottom: 15px; background: rgba(255, 255, 255, 0.1); padding: 10px 15px; border-radius: 8px; font-weight: 600;">
                                     ${levelName} ${gradeName} - 得分: <span style="color: #22c55e; font-weight: 700; font-size: 16px;">${material.score}分</span>
@@ -3560,8 +3861,12 @@ async function editApplication(applicationId) {
 // 排名功能相关函数
 async function initRankingTab() {
     try {
-        // 加载批次列表到排名下拉框
-        await DataManager.loadBatches();
+        // 并行加载批次和类目数据
+        await Promise.all([
+            DataManager.loadBatches(),
+            DataManager.loadCategories()
+        ]);
+        
         const rankingBatchSelect = document.getElementById('rankingBatchSelect');
         if (rankingBatchSelect) {
             rankingBatchSelect.innerHTML = '<option value="">请选择批次</option>';
@@ -3581,7 +3886,7 @@ async function initRankingTab() {
         // 如果加载失败，至少提供一个错误提示
         const rankingBatchSelect = document.getElementById('rankingBatchSelect');
         if (rankingBatchSelect) {
-            rankingBatchSelect.innerHTML = '<option value="">加载批次失败</option>';
+            rankingBatchSelect.innerHTML = '<option value="">加载数据失败</option>';
         }
     }
 }
@@ -3881,6 +4186,155 @@ function renderRankingTable(data) {
         `;
         return;
     }
+
+    // 确保categories数据已加载
+    if (!categories || categories.length === 0) {
+        console.warn('Categories not loaded, using default categories');
+        // 如果categories没有加载，尝试加载
+        DataManager.loadCategories().then(() => {
+            renderRankingTable(data);
+        }).catch(error => {
+            console.error('Failed to load categories:', error);
+            // 使用默认的硬编码列名作为fallback
+            renderRankingTableWithDefaultCategories(data);
+        });
+        return;
+    }
+
+    // 动态获取类目名称
+    const categoryNames = categories.map(cat => cat.name);
+    
+    // 构建表头
+    let tableHeaderHtml = `
+        <th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">排名</th>
+        <th style="padding: 15px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">姓名</th>
+        <th style="padding: 15px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">学号</th>
+        <th style="padding: 15px; text-align: left; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">班级</th>
+        <th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">总分</th>
+    `;
+    
+    // 动态添加类目列
+    categoryNames.forEach(categoryName => {
+        tableHeaderHtml += `<th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">${categoryName}</th>`;
+    });
+    
+    tableHeaderHtml += `<th style="padding: 15px; text-align: center; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.3);">审核时间</th>`;
+    
+    let tableHtml = `
+        <div style="margin-bottom: 20px;">
+            <h3 style="color: white; margin: 0;">${batch.name} - 奖学金排名</h3>
+            <p style="color: rgba(255, 255, 255, 0.7); margin: 5px 0;">共 ${total_count} 人通过审核</p>
+        </div>
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; background: rgba(255, 255, 255, 0.1); border-radius: 12px; overflow: hidden;">
+                <thead>
+                    <tr style="background: rgba(255, 255, 255, 0.2);">
+                        ${tableHeaderHtml}
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    rankings.forEach((ranking, index) => {
+        // 动态构建类目分数对象
+        const categoryScores = {};
+        categoryNames.forEach(categoryName => {
+            categoryScores[categoryName] = 0;
+        });
+        
+        // 优先使用后端计算的有效分数
+        if (ranking.category_scores) {
+            Object.keys(ranking.category_scores).forEach(categoryName => {
+                if (categoryScores.hasOwnProperty(categoryName)) {
+                    // 显示有效分数（考虑了100分上限）
+                    categoryScores[categoryName] = ranking.category_scores[categoryName].effective_score;
+                }
+            });
+        } else {
+            // 兼容性：如果没有category_scores字段，使用原逻辑
+            Object.keys(ranking.materials || {}).forEach(categoryName => {
+                const materials = ranking.materials[categoryName];
+                let categoryScore = 0;
+                materials.forEach(material => {
+                    categoryScore += parseFloat(material.score || 0);
+                });
+                if (categoryScores.hasOwnProperty(categoryName)) {
+                    categoryScores[categoryName] = categoryScore;
+                }
+            });
+        }
+        
+        const rowStyle = index % 2 === 0 ? 'background: rgba(255, 255, 255, 0.05);' : '';
+        const rankStyle = ranking.rank <= 3 ? 
+            (ranking.rank === 1 ? 'color: #ffd700; font-weight: bold;' : 
+             ranking.rank === 2 ? 'color: #c0c0c0; font-weight: bold;' : 
+             'color: #cd7f32; font-weight: bold;') : 'color: white;';
+        
+        // 构建基础行数据
+        let rowHtml = `
+            <tr style="${rowStyle}">
+                <td style="padding: 12px; text-align: center; ${rankStyle} border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${ranking.rank <= 3 ? (ranking.rank === 1 ? '🥇' : ranking.rank === 2 ? '🥈' : '🥉') : ''} ${ranking.rank}
+                </td>
+                <td style="padding: 12px; color: white; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${ranking.real_name || ranking.username}
+                </td>
+                <td style="padding: 12px; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${ranking.student_id || '-'}
+                </td>
+                <td style="padding: 12px; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${ranking.class || '-'}
+                </td>
+                <td style="padding: 12px; text-align: center; color: #4ecdc4; font-weight: bold; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${parseFloat(ranking.total_score).toFixed(1)}
+                </td>
+        `;
+        
+        // 动态添加类目分数列
+        categoryNames.forEach(categoryName => {
+            const score = categoryScores[categoryName] || 0;
+            rowHtml += `
+                <td style="padding: 12px; text-align: center; color: rgba(255, 255, 255, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${score.toFixed(1)}
+                </td>
+            `;
+        });
+        
+        // 添加审核时间列
+        rowHtml += `
+                <td style="padding: 12px; text-align: center; color: rgba(255, 255, 255, 0.6); font-size: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                    ${new Date(ranking.reviewed_at).toLocaleDateString('zh-CN')}
+                </td>
+            </tr>
+        `;
+        
+        tableHtml += rowHtml;
+    });
+    
+    tableHtml += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    tableContainer.innerHTML = tableHtml;
+}
+
+// 备用函数：当categories加载失败时使用默认的硬编码类目
+function renderRankingTableWithDefaultCategories(data) {
+    const tableContainer = document.getElementById('rankingTableContainer');
+    const { batch, rankings, total_count } = data;
+    
+    if (rankings.length === 0) {
+        tableContainer.innerHTML = `
+            <div style="text-align: center; padding: 40px; color: rgba(255, 255, 255, 0.7);">
+                <div style="font-size: 48px; margin-bottom: 20px;">📊</div>
+                <h3>暂无排名数据</h3>
+                <p>该批次还没有审核通过的申请</p>
+            </div>
+        `;
+        return;
+    }
     
     let tableHtml = `
         <div style="margin-bottom: 20px;">
@@ -3907,7 +4361,7 @@ function renderRankingTable(data) {
     `;
     
     rankings.forEach((ranking, index) => {
-        // 使用后端计算的有效类目分数（考虑上限和折算）
+        // 使用硬编码的默认类目分数（备用方案）
         const categoryScores = {
             '德育': 0,
             '能力': 0,
@@ -3919,13 +4373,12 @@ function renderRankingTable(data) {
         if (ranking.category_scores) {
             Object.keys(ranking.category_scores).forEach(categoryName => {
                 if (categoryScores.hasOwnProperty(categoryName)) {
-                    // 显示有效分数（考虑了100分上限）
                     categoryScores[categoryName] = ranking.category_scores[categoryName].effective_score;
                 }
             });
         } else {
             // 兼容性：如果没有category_scores字段，使用原逻辑
-            Object.keys(ranking.materials).forEach(categoryName => {
+            Object.keys(ranking.materials || {}).forEach(categoryName => {
                 const materials = ranking.materials[categoryName];
                 let categoryScore = 0;
                 materials.forEach(material => {

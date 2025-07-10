@@ -346,6 +346,25 @@
                                     <label class="form-label">奖项名称</label>
                                     <input type="text" id="newItemName" class="form-input" placeholder="请输入奖项名称">
                                 </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label checkbox-label">
+                                        <input type="checkbox" id="copyTemplateCheckbox" class="form-checkbox" onchange="toggleTemplateSelection()">
+                                        <span class="checkmark"></span>
+                                        复制现有奖项的分数模板
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-row" id="templateSelectionGroup" style="display: none;">
+                                <div class="form-group">
+                                    <label class="form-label">选择模板奖项</label>
+                                    <select id="templateItemSelect" class="form-select">
+                                        <option value="">请选择模板奖项</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
                                 <button class="btn" onclick="addNewItemToCategory()">添加奖项</button>
                             </div>
                         </div>

@@ -64,14 +64,27 @@ function getCategoriesWithItems() {
                 continue;
             }
             
-            $stmt = $pdo->prepare("SELECT level, grade, score FROM item_scores WHERE item_id = ?");
+            // 获取分数配置（包含自定义等级名称和团体/个人类型）
+            $stmt = $pdo->prepare("SELECT level, grade, score, custom_grade_name, award_type FROM item_scores WHERE item_id = ?");
             $stmt->execute([$item['id']]);
             $scores = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             $item['scores'] = [];
+            $item['score_details'] = []; // 详细分数信息，包含自定义名称和类型
             foreach ($scores as $score) {
                 $item['scores'][$score['level'] . '_' . $score['grade']] = $score['score'];
+                $item['score_details'][$score['level'] . '_' . $score['grade']] = [
+                    'score' => $score['score'],
+                    'custom_grade_name' => $score['custom_grade_name'],
+                    'award_type' => $score['award_type']
+                ];
             }
+            
+            // 获取自定义等级配置
+            $stmt = $pdo->prepare("SELECT grade_key, grade_name, sort_order FROM custom_grades WHERE item_id = ? ORDER BY sort_order");
+            $stmt->execute([$item['id']]);
+            $customGrades = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $item['custom_grades'] = $customGrades;
         }
         
         // 确保items是一个数组，即使是空的
@@ -137,7 +150,7 @@ function deleteCategory($id) {
 }
 
 // 创建奖项
-function createItem($categoryId, $name, $description = '') {
+function createItem($categoryId, $name, $description = '', $copyTemplate = false, $templateItemId = null) {
     $authResult = requireAdmin();
     if (!$authResult['success']) {
         return $authResult;
@@ -149,22 +162,87 @@ function createItem($categoryId, $name, $description = '') {
     $stmt->execute([$categoryId, $name, $description]);
     $itemId = $pdo->lastInsertId();
     
-    // 创建默认分数配置
-    $levels = ['national', 'provincial', 'municipal', 'university', 'college', 'ungraded'];
-    $grades = ['first', 'second', 'third', 'none'];
-    
-    foreach ($levels as $level) {
-        foreach ($grades as $grade) {
-            $stmt = $pdo->prepare("INSERT INTO item_scores (item_id, level, grade, score) VALUES (?, ?, ?, 0)");
-            $stmt->execute([$itemId, $level, $grade]);
+    if ($copyTemplate && $templateItemId) {
+        // 复制模板奖项的分数配置
+        $stmt = $pdo->prepare("SELECT level, grade, score, custom_grade_name, award_type FROM item_scores WHERE item_id = ?");
+        $stmt->execute([$templateItemId]);
+        $templateScores = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 复制自定义等级配置
+        $stmt = $pdo->prepare("SELECT grade_key, grade_name, sort_order FROM custom_grades WHERE item_id = ?");
+        $stmt->execute([$templateItemId]);
+        $templateGrades = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if (!empty($templateScores)) {
+            foreach ($templateScores as $scoreConfig) {
+                $stmt = $pdo->prepare("INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$itemId, $scoreConfig['level'], $scoreConfig['grade'], $scoreConfig['score'], $scoreConfig['custom_grade_name'], $scoreConfig['award_type']]);
+            }
+        } else {
+            // 如果模板没有分数配置，则创建默认配置
+            createDefaultScoresAndGrades($pdo, $itemId, 'individual');
         }
+        
+        if (!empty($templateGrades)) {
+            foreach ($templateGrades as $gradeConfig) {
+                $stmt = $pdo->prepare("INSERT INTO custom_grades (item_id, grade_key, grade_name, sort_order) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$itemId, $gradeConfig['grade_key'], $gradeConfig['grade_name'], $gradeConfig['sort_order']]);
+            }
+        } else {
+            // 如果模板没有自定义等级，则创建默认等级
+            createDefaultCustomGrades($pdo, $itemId);
+        }
+    } else {
+        // 创建默认分数配置和自定义等级
+        createDefaultScoresAndGrades($pdo, $itemId, 'individual');
+        createDefaultCustomGrades($pdo, $itemId);
     }
     
     return ['success' => true, 'message' => '奖项创建成功', 'id' => $itemId];
 }
+    
+    // 创建默认分数配置
+function createDefaultScoresAndGrades($pdo, $itemId, $defaultAwardType = 'individual') {
+    $levels = ['national', 'provincial', 'municipal', 'university', 'college', 'ungraded'];
+    $grades = ['first', 'second', 'third', 'encouragement', 'participation', 'none'];
+    
+    $gradeNames = [
+        'first' => '一等奖',
+        'second' => '二等奖', 
+        'third' => '三等奖',
+        'encouragement' => '鼓励奖',
+        'participation' => '参与奖',
+        'none' => '无等级'
+    ];
+    
+    foreach ($levels as $level) {
+        foreach ($grades as $grade) {
+            $customGradeName = $gradeNames[$grade] ?? '未知等级';
+            $stmt = $pdo->prepare("INSERT INTO item_scores (item_id, level, grade, score, custom_grade_name, award_type) VALUES (?, ?, ?, 0, ?, ?)");
+            $stmt->execute([$itemId, $level, $grade, $customGradeName, $defaultAwardType]);
+        }
+    }
+}
+
+// 创建默认自定义等级
+function createDefaultCustomGrades($pdo, $itemId) {
+    $gradeConfigs = [
+        ['grade_key' => 'first', 'grade_name' => '一等奖', 'sort_order' => 1],
+        ['grade_key' => 'second', 'grade_name' => '二等奖', 'sort_order' => 2],
+        ['grade_key' => 'third', 'grade_name' => '三等奖', 'sort_order' => 3],
+        ['grade_key' => 'encouragement', 'grade_name' => '鼓励奖', 'sort_order' => 4],
+        ['grade_key' => 'participation', 'grade_name' => '参与奖', 'sort_order' => 5],
+        ['grade_key' => 'none', 'grade_name' => '无等级', 'sort_order' => 6]
+    ];
+    
+    foreach ($gradeConfigs as $config) {
+        $stmt = $pdo->prepare("INSERT INTO custom_grades (item_id, grade_key, grade_name, sort_order) VALUES (?, ?, ?, ?)");
+        $stmt->execute([$itemId, $config['grade_key'], $config['grade_name'], $config['sort_order']]);
+    }
+}
 
 // 更新奖项分数
-function updateItemScore($itemId, $level, $grade, $score) {
+function updateItemScore($itemId, $level, $grade, $score, $customGradeName = null, $awardType = null) {
     $authResult = requireAdmin();
     if (!$authResult['success']) {
         return $authResult;
@@ -172,8 +250,27 @@ function updateItemScore($itemId, $level, $grade, $score) {
     
     $pdo = getConnection();
     
-    $stmt = $pdo->prepare("UPDATE item_scores SET score = ? WHERE item_id = ? AND level = ? AND grade = ?");
-    $stmt->execute([$score, $itemId, $level, $grade]);
+    // 构建更新SQL
+    $updateFields = ['score = ?'];
+    $params = [$score];
+    
+    if ($customGradeName !== null) {
+        $updateFields[] = 'custom_grade_name = ?';
+        $params[] = $customGradeName;
+    }
+    
+    if ($awardType !== null) {
+        $updateFields[] = 'award_type = ?';
+        $params[] = $awardType;
+    }
+    
+    $params[] = $itemId;
+    $params[] = $level;
+    $params[] = $grade;
+    
+    $sql = "UPDATE item_scores SET " . implode(', ', $updateFields) . " WHERE item_id = ? AND level = ? AND grade = ?";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     
     return ['success' => true, 'message' => '分数更新成功'];
 }
@@ -200,6 +297,26 @@ function deleteItem($id) {
     $stmt->execute([$id]);
     
     return ['success' => true, 'message' => '奖项删除成功'];
+}
+
+// 更新自定义等级名称
+function updateCustomGrade($itemId, $gradeKey, $gradeName) {
+    $authResult = requireAdmin();
+    if (!$authResult['success']) {
+        return $authResult;
+    }
+    
+    $pdo = getConnection();
+    
+    // 更新custom_grades表
+    $stmt = $pdo->prepare("UPDATE custom_grades SET grade_name = ? WHERE item_id = ? AND grade_key = ?");
+    $stmt->execute([$gradeName, $itemId, $gradeKey]);
+    
+    // 同时更新item_scores表中对应的custom_grade_name
+    $stmt = $pdo->prepare("UPDATE item_scores SET custom_grade_name = ? WHERE item_id = ? AND grade = ?");
+    $stmt->execute([$gradeName, $itemId, $gradeKey]);
+    
+    return ['success' => true, 'message' => '等级名称更新成功'];
 }
 
 // 处理请求
@@ -279,13 +396,20 @@ try {
             $categoryId = $requestData['category_id'] ?? $_POST['category_id'] ?? 0;
             $name = $requestData['name'] ?? $_POST['name'] ?? '';
             $description = $requestData['description'] ?? $_POST['description'] ?? '';
+            $copyTemplate = $requestData['copy_template'] ?? $_POST['copy_template'] ?? false;
+            $templateItemId = $requestData['template_item_id'] ?? $_POST['template_item_id'] ?? null;
             
             if (!$categoryId || empty($name)) {
                 echo json_encode(['success' => false, 'message' => '参数不完整']);
                 break;
             }
             
-            $result = createItem($categoryId, $name, $description);
+            if ($copyTemplate && !$templateItemId) {
+                echo json_encode(['success' => false, 'message' => '选择复制模板时必须指定模板奖项ID']);
+                break;
+            }
+            
+            $result = createItem($categoryId, $name, $description, $copyTemplate, $templateItemId);
             echo json_encode($result);
             break;
             
@@ -294,15 +418,33 @@ try {
             $level = $requestData['level'] ?? $_POST['level'] ?? '';
             $grade = $requestData['grade'] ?? $_POST['grade'] ?? '';
             $score = $requestData['score'] ?? $_POST['score'] ?? 0;
+            $customGradeName = $requestData['custom_grade_name'] ?? $_POST['custom_grade_name'] ?? null;
+            $awardType = $requestData['award_type'] ?? $_POST['award_type'] ?? null;
             
             if (!$itemId || empty($level) || empty($grade)) {
                 echo json_encode(['success' => false, 'message' => '参数不完整']);
                 break;
             }
             
-            $result = updateItemScore($itemId, $level, $grade, $score);
+            $result = updateItemScore($itemId, $level, $grade, $score, $customGradeName, $awardType);
             echo json_encode($result);
             break;
+            
+        case 'update_custom_grade':
+            $itemId = $requestData['item_id'] ?? $_POST['item_id'] ?? 0;
+            $gradeKey = $requestData['grade_key'] ?? $_POST['grade_key'] ?? '';
+            $gradeName = $requestData['grade_name'] ?? $_POST['grade_name'] ?? '';
+            
+            if (!$itemId || empty($gradeKey) || empty($gradeName)) {
+                echo json_encode(['success' => false, 'message' => '参数不完整']);
+                break;
+            }
+            
+            $result = updateCustomGrade($itemId, $gradeKey, $gradeName);
+            echo json_encode($result);
+            break;
+            
+
             
         case 'delete_item':
             $id = $requestData['id'] ?? $_POST['id'] ?? 0;
