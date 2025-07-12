@@ -129,8 +129,8 @@
 
 1. **下载源码**
    ```bash
-   git clone https://github.com/your-username/scholarship-system.git
-   cd scholarship-system
+   git clone https://github.com/wick2035/JXJ.git
+   cd JXJ
    ```
 
 2. **配置Web服务器**
@@ -242,10 +242,10 @@ date_default_timezone_set('Asia/Shanghai');  // 时区设置
 #### Apache配置
 ```apache
 <VirtualHost *:80>
-    DocumentRoot /path/to/scholarship-system
+    DocumentRoot /path/to/JXJ
     ServerName yourdomain.com
     
-    <Directory /path/to/scholarship-system>
+    <Directory /path/to/JXJ>
         Options Indexes FollowSymLinks
         AllowOverride All
         Require all granted
@@ -258,7 +258,7 @@ date_default_timezone_set('Asia/Shanghai');  // 时区设置
 server {
     listen 80;
     server_name yourdomain.com;
-    root /path/to/scholarship-system;
+    root /path/to/JXJ;
     index index.html index.php;
     
     location ~ \.php$ {
@@ -274,14 +274,13 @@ server {
 
 ### 版权声明
 
-本软件系统由 **[您的姓名/公司名称]** 独立开发完成，拥有完整的软件著作权。
+本软件系统由著作权人独立开发完成，拥有完整的软件著作权。
 
 **著作权登记信息：**
-- 软件名称：奖学金评定系统
-- 著作权人：[您的姓名/公司名称]
-- 开发完成日期：[完成日期]
-- 首次发表日期：[发表日期]
-- 软件著作权登记号：[登记号]
+- 软件名称：综合测评系统
+- 开发完成日期：2025-06-26
+- 首次发表日期：2025-06-27
+- 软件著作权登记号：2025R11L1663475
 
 ### 知识产权保护
 
@@ -301,26 +300,23 @@ server {
 
 本系统采用 **商业授权** 模式，提供以下授权方案：
 
-#### 🎓 教育版授权
+#### 🎓 教育授权
 - **适用对象**：高等院校、职业院校
 - **授权范围**：单一学校内部使用
 - **技术支持**：基础技术支持
 - **授权期限**：永久授权
-- **价格**：¥8,888
 
-#### 🏢 企业版授权
+#### 🏢 企业授权
 - **适用对象**：企业内部培训、人事管理
 - **授权范围**：单一企业内部使用
 - **技术支持**：标准技术支持
 - **授权期限**：永久授权
-- **价格**：¥15,888
 
 #### 🌐 定制开发
 - **适用对象**：有特殊需求的客户
 - **服务内容**：功能定制、界面定制、集成开发
 - **技术支持**：全程技术支持
 - **授权期限**：永久授权
-- **价格**：面议
 
 ### 授权包含内容
 
@@ -340,12 +336,9 @@ server {
 - 获得技术支持
 - 定制化需求评估
 
-### 联系购买
+### 联系咨询
 
-📧 **商务咨询**：business@example.com
-📱 **联系电话**：400-XXX-XXXX
-💬 **微信咨询**：ScholarshipSystem
-🌐 **官方网站**：https://www.example.com
+📧 **商务咨询**：j2337786067@outlook.com
 
 ## 🔧 技术支持
 
@@ -421,9 +414,8 @@ server {
 
 <div align="center">
 
-**© 2024 [您的姓名/公司名称]. 保留所有权利。**
 
-[![GitHub stars](https://img.shields.io/github/stars/your-username/scholarship-system?style=social)](https://github.com/your-username/scholarship-system/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/your-username/scholarship-system?style=social)](https://github.com/your-username/scholarship-system/network/members)
+[![GitHub stars](https://img.shields.io/github/stars/wick2035/JXJ?style=social)](https://github.com/wick2035/JXJ/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/wick2035/JXJ?style=social)](https://github.com/wick2035/JXJ/network/members)
 
 </div> 
