@@ -1,4 +1,4 @@
-# 🏆 奖学金评定系统 (Scholarship Evaluation System)
+# 🏆 综合测评系统 (Scholarship Evaluation System)
 
 一个现代化的奖学金评定管理系统，为高校提供完整的奖学金申请、审核、排名和管理解决方案。
 
